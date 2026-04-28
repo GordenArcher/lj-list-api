@@ -1,0 +1,82 @@
+package services
+
+import (
+	"context"
+	"errors"
+
+	"github.com/GordenArcher/lj-list-api/internal/apperrors"
+	"github.com/GordenArcher/lj-list-api/internal/models"
+	"github.com/GordenArcher/lj-list-api/internal/repositories"
+	"github.com/jackc/pgx/v5"
+)
+
+type ConversationService struct {
+	conversationRepo *repositories.ConversationRepository
+	userRepo         *repositories.UserRepository
+}
+
+func NewConversationService(
+	conversationRepo *repositories.ConversationRepository,
+	userRepo *repositories.UserRepository,
+) *ConversationService {
+	return &ConversationService{
+		conversationRepo: conversationRepo,
+		userRepo:         userRepo,
+	}
+}
+
+// StartOrGet finds an existing conversation between the customer and the
+// admin, or creates one. The first message is sent immediately so the
+// conversation list has something to display. Returns the conversation
+// with the other user's details.
+func (s *ConversationService) StartOrGet(ctx context.Context, customerID, adminID, initialMessage string) (*models.ConversationWithDetails, error) {
+	conv, err := s.conversationRepo.FindOrCreateWithInitialMessage(ctx, customerID, adminID, customerID, initialMessage)
+	if err != nil {
+		return nil, apperrors.Wrap(apperrors.KindInternal, "Failed to start conversation", err)
+	}
+
+	return s.buildConversationDetails(ctx, conv, customerID)
+}
+
+// GetUserConversations returns paginated conversations for a user with the other
+// participant's profile and unread counts.
+func (s *ConversationService) GetUserConversations(ctx context.Context, userID string, offset, limit int) ([]models.ConversationWithDetails, error) {
+	conversations, err := s.conversationRepo.FindAllByUser(ctx, userID, offset, limit)
+	if err != nil {
+		return nil, apperrors.Wrap(apperrors.KindInternal, "Failed to retrieve conversations", err)
+	}
+	return conversations, nil
+}
+
+// GetUserConversationsCount returns the total count of conversations for a user.
+func (s *ConversationService) GetUserConversationsCount(ctx context.Context, userID string) (int, error) {
+	count, err := s.conversationRepo.CountByUser(ctx, userID)
+	if err != nil {
+		return 0, apperrors.Wrap(apperrors.KindInternal, "Failed to retrieve conversation count", err)
+	}
+	return count, nil
+}
+
+// buildConversationDetails fetches the other user's profile and constructs
+// a ConversationWithDetails. This is a shared helper, conversation list
+// queries do this in SQL, but single conversation lookups do it here.
+func (s *ConversationService) buildConversationDetails(ctx context.Context, conv *models.Conversation, currentUserID string) (*models.ConversationWithDetails, error) {
+	otherUserID := conv.ParticipantOne
+	if otherUserID == currentUserID {
+		otherUserID = conv.ParticipantTwo
+	}
+
+	otherUser, err := s.userRepo.FindByID(ctx, otherUserID)
+	if err != nil {
+		if errors.Is(err, pgx.ErrNoRows) {
+			return nil, apperrors.New(apperrors.KindNotFound, "Conversation participant not found", nil)
+		}
+		return nil, apperrors.Wrap(apperrors.KindInternal, "Failed to retrieve conversation participant", err)
+	}
+
+	return &models.ConversationWithDetails{
+		ID:        conv.ID,
+		OtherUser: *otherUser,
+		CreatedAt: conv.CreatedAt,
+	}, nil
+}
