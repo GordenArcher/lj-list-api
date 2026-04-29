@@ -2,6 +2,7 @@ package repositories
 
 import (
 	"context"
+	"errors"
 	"fmt"
 	"strings"
 
@@ -33,38 +34,47 @@ func (r *ConversationRepository) FindOrCreate(ctx context.Context, userOne, user
 	return conv, nil
 }
 
-// FindOrCreateWithInitialMessage wraps conversation upsert + first message in
+// FindOrCreateWithInitialMessage wraps conversation creation + first message in
 // one transaction so we don't create empty conversations on message failure.
-func (r *ConversationRepository) FindOrCreateWithInitialMessage(ctx context.Context, userOne, userTwo, senderID, initialMessage string) (*models.Conversation, error) {
+// If the conversation already exists, no new message is inserted. The bool
+// return indicates whether a new conversation (and therefore the initial
+// message) was actually created.
+func (r *ConversationRepository) FindOrCreateWithInitialMessage(ctx context.Context, userOne, userTwo, senderID, initialMessage string) (*models.Conversation, bool, error) {
 	first, second := sortPair(userOne, userTwo)
 	trimmed := strings.TrimSpace(initialMessage)
 
 	tx, err := r.pool.BeginTx(ctx, pgx.TxOptions{})
 	if err != nil {
-		return nil, fmt.Errorf("begin conversation transaction: %w", err)
+		return nil, false, fmt.Errorf("begin conversation transaction: %w", err)
 	}
 	defer tx.Rollback(ctx)
 
-	conv, err := upsertConversation(ctx, tx, first, second)
+	conv, created, err := insertConversationIfMissing(ctx, tx, first, second)
 	if err != nil {
-		return nil, fmt.Errorf("upsert conversation: %w", err)
+		return nil, false, fmt.Errorf("insert conversation if missing: %w", err)
+	}
+	if !created {
+		conv, err = findConversationByParticipants(ctx, tx, first, second)
+		if err != nil {
+			return nil, false, fmt.Errorf("find existing conversation: %w", err)
+		}
 	}
 
-	if trimmed != "" {
+	if created && trimmed != "" {
 		query := `
 			INSERT INTO messages (conversation_id, sender_id, content)
 			VALUES ($1, $2, $3)
 		`
 		if _, err := tx.Exec(ctx, query, conv.ID, senderID, trimmed); err != nil {
-			return nil, fmt.Errorf("insert initial message: %w", err)
+			return nil, false, fmt.Errorf("insert initial message: %w", err)
 		}
 	}
 
 	if err := tx.Commit(ctx); err != nil {
-		return nil, fmt.Errorf("commit conversation transaction: %w", err)
+		return nil, false, fmt.Errorf("commit conversation transaction: %w", err)
 	}
 
-	return conv, nil
+	return conv, created, nil
 }
 
 func upsertConversation(ctx context.Context, q conversationQueryRow, first, second string) (*models.Conversation, error) {
@@ -74,6 +84,46 @@ func upsertConversation(ctx context.Context, q conversationQueryRow, first, seco
 		ON CONFLICT (participant_one, participant_two)
 		DO UPDATE SET participant_one = conversations.participant_one
 		RETURNING id, participant_one, participant_two, created_at
+	`
+
+	var conv models.Conversation
+	err := q.QueryRow(ctx, query, first, second).Scan(
+		&conv.ID, &conv.ParticipantOne, &conv.ParticipantTwo, &conv.CreatedAt,
+	)
+	if err != nil {
+		return nil, err
+	}
+
+	return &conv, nil
+}
+
+func insertConversationIfMissing(ctx context.Context, q conversationQueryRow, first, second string) (*models.Conversation, bool, error) {
+	query := `
+		INSERT INTO conversations (participant_one, participant_two)
+		VALUES ($1, $2)
+		ON CONFLICT (participant_one, participant_two) DO NOTHING
+		RETURNING id, participant_one, participant_two, created_at
+	`
+
+	var conv models.Conversation
+	err := q.QueryRow(ctx, query, first, second).Scan(
+		&conv.ID, &conv.ParticipantOne, &conv.ParticipantTwo, &conv.CreatedAt,
+	)
+	if err != nil {
+		if errors.Is(err, pgx.ErrNoRows) {
+			return nil, false, nil
+		}
+		return nil, false, err
+	}
+
+	return &conv, true, nil
+}
+
+func findConversationByParticipants(ctx context.Context, q conversationQueryRow, first, second string) (*models.Conversation, error) {
+	query := `
+		SELECT id, participant_one, participant_two, created_at
+		FROM conversations
+		WHERE participant_one = $1 AND participant_two = $2
 	`
 
 	var conv models.Conversation

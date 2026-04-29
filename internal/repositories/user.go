@@ -5,6 +5,7 @@ import (
 	"fmt"
 
 	"github.com/GordenArcher/lj-list-api/internal/models"
+	"github.com/jackc/pgx/v5"
 	"github.com/jackc/pgx/v5/pgxpool"
 )
 
@@ -96,4 +97,108 @@ func (r *UserRepository) ExistsByEmail(ctx context.Context, email string) (bool,
 	}
 
 	return exists, nil
+}
+
+// FindAll returns paginated users, optionally filtered by role. Ordered by
+// newest account first so admin dashboards surface recent signups naturally.
+func (r *UserRepository) FindAll(ctx context.Context, role string, offset, limit int) ([]models.User, error) {
+	var rows pgx.Rows
+	var err error
+
+	if role == "" {
+		query := `
+			SELECT id, email, display_name, phone, role, created_at, updated_at
+			FROM users
+			ORDER BY created_at DESC
+			OFFSET $1 LIMIT $2
+		`
+		rows, err = r.pool.Query(ctx, query, offset, limit)
+	} else {
+		query := `
+			SELECT id, email, display_name, phone, role, created_at, updated_at
+			FROM users
+			WHERE role = $1
+			ORDER BY created_at DESC
+			OFFSET $2 LIMIT $3
+		`
+		rows, err = r.pool.Query(ctx, query, role, offset, limit)
+	}
+
+	if err != nil {
+		return nil, fmt.Errorf("query users: %w", err)
+	}
+	defer rows.Close()
+
+	var users []models.User
+	for rows.Next() {
+		var user models.User
+		if err := rows.Scan(
+			&user.ID,
+			&user.Email,
+			&user.DisplayName,
+			&user.Phone,
+			&user.Role,
+			&user.CreatedAt,
+			&user.UpdatedAt,
+		); err != nil {
+			return nil, fmt.Errorf("scan user: %w", err)
+		}
+		users = append(users, user)
+	}
+
+	if users == nil {
+		users = []models.User{}
+	}
+
+	return users, nil
+}
+
+// CountAll returns the total number of users, optionally filtered by role.
+func (r *UserRepository) CountAll(ctx context.Context, role string) (int, error) {
+	var count int
+
+	if role == "" {
+		query := `SELECT COUNT(*) FROM users`
+		if err := r.pool.QueryRow(ctx, query).Scan(&count); err != nil {
+			return 0, fmt.Errorf("count users: %w", err)
+		}
+	} else {
+		query := `SELECT COUNT(*) FROM users WHERE role = $1`
+		if err := r.pool.QueryRow(ctx, query, role).Scan(&count); err != nil {
+			return 0, fmt.Errorf("count users by role: %w", err)
+		}
+	}
+
+	return count, nil
+}
+
+// Update overwrites the editable user fields and returns the fresh public row.
+// Passwords are intentionally excluded from this path; auth credentials are
+// managed separately from profile/admin edits.
+func (r *UserRepository) Update(ctx context.Context, id, displayName string, phone *string, role string) (*models.User, error) {
+	query := `
+		UPDATE users
+		SET display_name = $2,
+			phone = $3,
+			role = $4,
+			updated_at = NOW()
+		WHERE id = $1
+		RETURNING id, email, display_name, phone, role, created_at, updated_at
+	`
+
+	var user models.User
+	err := r.pool.QueryRow(ctx, query, id, displayName, phone, role).Scan(
+		&user.ID,
+		&user.Email,
+		&user.DisplayName,
+		&user.Phone,
+		&user.Role,
+		&user.CreatedAt,
+		&user.UpdatedAt,
+	)
+	if err != nil {
+		return nil, fmt.Errorf("update user: %w", err)
+	}
+
+	return &user, nil
 }

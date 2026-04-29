@@ -11,10 +11,14 @@ import (
 
 type MessageHandler struct {
 	messageService *services.MessageService
+	smsService     *services.SMSService
 }
 
-func NewMessageHandler(messageService *services.MessageService) *MessageHandler {
-	return &MessageHandler{messageService: messageService}
+func NewMessageHandler(messageService *services.MessageService, smsService *services.SMSService) *MessageHandler {
+	return &MessageHandler{
+		messageService: messageService,
+		smsService:     smsService,
+	}
 }
 
 type sendMessageRequest struct {
@@ -46,6 +50,7 @@ func (h *MessageHandler) Send(c *gin.Context) {
 		return
 	}
 
+	h.smsService.NotifyAdminNewMessage(c.Request.Context(), userID, utils.GetUserRoleFromContext(c), req.Content)
 	utils.Success(c, http.StatusCreated, "Message sent", msg)
 }
 

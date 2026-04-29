@@ -1,12 +1,14 @@
 package handlers
 
 import (
+	"context"
 	"errors"
 	"net/http"
 	"strings"
 
 	"github.com/GordenArcher/lj-list-api/internal/apperrors"
 	"github.com/GordenArcher/lj-list-api/internal/config"
+	"github.com/GordenArcher/lj-list-api/internal/models"
 	"github.com/GordenArcher/lj-list-api/internal/repositories"
 	"github.com/GordenArcher/lj-list-api/internal/services"
 	"github.com/GordenArcher/lj-list-api/internal/utils"
@@ -14,20 +16,37 @@ import (
 	"github.com/jackc/pgx/v5"
 )
 
+type conversationService interface {
+	StartOrGet(ctx context.Context, customerID, adminID, initialMessage string) (*models.ConversationWithDetails, bool, error)
+	GetUserConversations(ctx context.Context, userID string, offset, limit int) ([]models.ConversationWithDetails, error)
+	GetUserConversationsCount(ctx context.Context, userID string) (int, error)
+}
+
+type conversationUserRepository interface {
+	FindByEmail(ctx context.Context, email string) (*models.User, error)
+}
+
+type conversationSMSService interface {
+	NotifyAdminNewMessage(ctx context.Context, senderID, senderRole, content string)
+}
+
 type ConversationHandler struct {
-	conversationService *services.ConversationService
-	userRepo            *repositories.UserRepository
+	conversationService conversationService
+	userRepo            conversationUserRepository
+	smsService          conversationSMSService
 	cfg                 config.Config
 }
 
 func NewConversationHandler(
 	conversationService *services.ConversationService,
 	userRepo *repositories.UserRepository,
+	smsService *services.SMSService,
 	cfg config.Config,
 ) *ConversationHandler {
 	return &ConversationHandler{
 		conversationService: conversationService,
 		userRepo:            userRepo,
+		smsService:          smsService,
 		cfg:                 cfg,
 	}
 }
@@ -54,7 +73,7 @@ func (h *ConversationHandler) Create(c *gin.Context) {
 
 	userID := utils.GetUserIDFromContext(c)
 
-	// Find the admin user — conversations always include the admin as the
+	// Find the admin user, conversations always include the admin as the
 	// other participant. We look up by the configured admin email rather
 	// than hardcoding a UUID.
 	admin, err := h.userRepo.FindByEmail(c.Request.Context(), h.cfg.AdminEmail)
@@ -71,13 +90,28 @@ func (h *ConversationHandler) Create(c *gin.Context) {
 		return
 	}
 
-	conv, err := h.conversationService.StartOrGet(c.Request.Context(), userID, admin.ID, req.Message)
+	if admin.ID == userID {
+		utils.HandleError(c, apperrors.New(
+			apperrors.KindValidation,
+			"Admin cannot message themselves",
+			map[string][]string{"conversation": {"admin cannot start a conversation with themselves"}},
+		), "")
+		return
+	}
+
+	conv, created, err := h.conversationService.StartOrGet(c.Request.Context(), userID, admin.ID, req.Message)
 	if err != nil {
 		utils.HandleError(c, err, "Failed to start conversation")
 		return
 	}
 
-	utils.Success(c, http.StatusCreated, "Conversation started", conv)
+	if created {
+		h.smsService.NotifyAdminNewMessage(c.Request.Context(), userID, utils.GetUserRoleFromContext(c), req.Message)
+		utils.Success(c, http.StatusCreated, "Conversation started", conv)
+		return
+	}
+
+	utils.Success(c, http.StatusOK, "Conversation already exists", conv)
 }
 
 func (h *ConversationHandler) List(c *gin.Context) {

@@ -13,10 +13,11 @@ import (
 )
 
 const (
-	// refreshTokenCookiePath scopes the refresh cookie to only the refresh route.
-	// This reduces cookie surface area: browsers won't send refresh_token to
-	// unrelated endpoints where it's never needed.
-	refreshTokenCookiePath = "/api/v1/auth/refresh"
+	// refreshTokenCookiePath scopes the refresh cookie to auth endpoints only.
+	// Using the auth prefix instead of the exact refresh route keeps the cookie
+	// off the rest of the API while ensuring login/signup/logout/refresh can all
+	// reliably set or clear the same cookie path.
+	refreshTokenCookiePath = "/api/v1/auth"
 )
 
 type AuthHandler struct {

@@ -56,9 +56,12 @@ make run
 | `CLOUDINARY_CLOUD_NAME` | Cloudinary cloud name | required |
 | `CLOUDINARY_API_KEY` | Cloudinary key | required |
 | `CLOUDINARY_API_SECRET` | Cloudinary secret | required |
-| `HUBTEL_API_KEY` | Hubtel key | required |
+| `HUBTEL_CLIENT_ID` | Hubtel SMS client ID | required |
+| `HUBTEL_CLIENT_SECRET` | Hubtel SMS client secret | required |
+| `HUBTEL_SMS_URL` | Hubtel SMS send endpoint | `https://smsc.hubtel.com/v1/messages/send` |
 | `HUBTEL_SENDER_ID` | SMS sender ID | `LJList` |
 | `ADMIN_EMAIL` | Email auto-promoted to admin on signup | required |
+| `ADMIN_NUMBER` | Admin phone number for SMS alerts | required for SMS notifications |
 | `MIN_ORDER` | Minimum order amount in GHS | `549` |
 
 ## Response Envelope
@@ -123,6 +126,8 @@ Public:
 Authenticated customer:
 
 - `POST /api/v1/auth/logout`
+- `GET /api/v1/profile`
+- `PATCH /api/v1/profile`
 - `POST /api/v1/applications`
 - `GET /api/v1/applications`
 - `GET /api/v1/applications/:id`
@@ -133,6 +138,13 @@ Authenticated customer:
 
 Authenticated admin:
 
+- `GET /api/v1/admin/users`
+- `PATCH /api/v1/admin/users/:id`
+- `POST /api/v1/admin/products`
+- `PATCH /api/v1/admin/products/:id`
+- `GET /api/v1/admin/products/:id/images`
+- `POST /api/v1/admin/products/:id/images`
+- `DELETE /api/v1/admin/products/:id/images/:imageId`
 - `GET /api/v1/admin/applications`
 - `PATCH /api/v1/admin/applications/:id`
 - `GET /api/v1/admin/conversations`

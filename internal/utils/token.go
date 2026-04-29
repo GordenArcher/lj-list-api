@@ -53,8 +53,8 @@ func GenerateAccessToken(userID, role, secret string) (string, error) {
 
 // GenerateRefreshToken creates a long-lived JWT (7 days). It's stored in
 // a separate httpOnly cookie with a restricted path so it's only sent to
-// the refresh endpoint. If a refresh token is compromised, the attacker
-// can get new access tokens but only for 7 days.
+// auth endpoints, not the entire API. If a refresh token is compromised,
+// the attacker can get new access tokens but only for 7 days.
 func GenerateRefreshToken(userID, secret string) (string, error) {
 	claims := RefreshTokenClaims{
 		TokenType: RefreshTokenType,
@@ -72,7 +72,7 @@ func GenerateRefreshToken(userID, secret string) (string, error) {
 
 // GenerateTokenPair returns both tokens. The caller sets two cookies:
 // one for the access token (path=/), one for the refresh token
-// (path=/api/v1/auth/refresh).
+// (path=/api/v1/auth).
 func GenerateTokenPair(userID, role, secret string) (*TokenPair, error) {
 	access, err := GenerateAccessToken(userID, role, secret)
 	if err != nil {

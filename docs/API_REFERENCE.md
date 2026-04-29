@@ -39,7 +39,7 @@ Error responses use `status: "error"` and include `errors`:
 Auth is cookie-first:
 
 - `access_token` cookie (15m, path `/`)
-- `refresh_token` cookie (7d, path `/api/v1/auth/refresh`)
+- `refresh_token` cookie (7d, path `/api/v1/auth`)
 
 Authorization header is also accepted:
 
@@ -139,6 +139,45 @@ Auth required.
 
 Success `200` data: `null`
 
+## Profile Endpoints
+
+### GET `/profile`
+
+Auth required.
+
+Success `200` data:
+
+```json
+{
+  "user": {
+    "id": "uuid",
+    "email": "kwame@email.com",
+    "display_name": "Kwame",
+    "phone": "0240000000",
+    "role": "customer",
+    "created_at": "2026-04-29T12:00:00Z",
+    "updated_at": "2026-04-29T12:00:00Z"
+  }
+}
+```
+
+### PATCH `/profile`
+
+Auth required.
+
+Request body may include any subset of:
+
+```json
+{
+  "display_name": "Kwame Mensah",
+  "phone": "0240000000"
+}
+```
+
+Send `"phone": ""` to clear the saved phone number.
+
+Success `200` data: same `user` object as above.
+
 ## Product Endpoints
 
 ### GET `/products`
@@ -160,6 +199,14 @@ Success `200` data:
       "category": "Rice & Grains",
       "price": 120,
       "image_url": "https://...",
+      "images": [
+        {
+          "id": "uuid",
+          "product_id": "uuid",
+          "image_url": "https://...",
+          "created_at": "2026-04-29T12:00:00Z"
+        }
+      ],
       "unit": "bag",
       "active": true
     }
@@ -184,6 +231,125 @@ Success `200` data:
   "categories": ["Rice & Grains", "Cooking Oil", "Beverages"]
 }
 ```
+
+## Admin Product Endpoints
+
+### POST `/admin/products`
+
+Auth required. Admin only.
+
+Request content type: `application/json`
+
+Fields:
+
+- `name` required
+- `category` required
+- `price` required, integer greater than 0
+- `unit` required
+- `active` optional, defaults to `true`
+
+Success `201` data:
+
+```json
+{
+  "id": "uuid",
+  "name": "Royal Aroma Rice 5kg",
+  "category": "Rice & Grains",
+  "price": 120,
+  "image_url": "",
+  "images": [],
+  "unit": "bag",
+  "active": true
+}
+```
+
+### PATCH `/admin/products/:id`
+
+Auth required. Admin only.
+
+Request content type: `application/json`
+
+Any subset of fields may be provided:
+
+- `name` optional
+- `category` optional
+- `price` optional, integer greater than 0
+- `unit` optional
+- `active` optional, `true` or `false`
+
+Success `200` data:
+
+```json
+{
+  "id": "uuid",
+  "name": "Royal Aroma Rice 5kg",
+  "category": "Rice & Grains",
+  "price": 125,
+  "image_url": "https://res.cloudinary.com/...",
+  "images": [
+    {
+      "id": "uuid",
+      "product_id": "uuid",
+      "image_url": "https://res.cloudinary.com/...",
+      "created_at": "2026-04-29T12:00:00Z"
+    }
+  ],
+  "unit": "bag",
+  "active": true
+}
+```
+
+### GET `/admin/products/:id/images`
+
+Auth required. Admin only.
+
+Success `200` data:
+
+```json
+{
+  "images": [
+    {
+      "id": "uuid",
+      "product_id": "uuid",
+      "image_url": "https://res.cloudinary.com/...",
+      "created_at": "2026-04-29T12:00:00Z"
+    }
+  ]
+}
+```
+
+### POST `/admin/products/:id/images`
+
+Auth required. Admin only.
+
+Request content type: `multipart/form-data`
+
+Fields:
+
+- `images` one or more image files
+
+You may also send a single `image` field for one file.
+
+Success `201` data:
+
+```json
+{
+  "images": [
+    {
+      "id": "uuid",
+      "product_id": "uuid",
+      "image_url": "https://res.cloudinary.com/...",
+      "created_at": "2026-04-29T12:00:00Z"
+    }
+  ]
+}
+```
+
+### DELETE `/admin/products/:id/images/:imageId`
+
+Auth required. Admin only.
+
+Deletes the product image record and destroys the underlying Cloudinary asset.
 
 ## Application Endpoints
 
@@ -248,7 +414,14 @@ Request body:
 }
 ```
 
-Success `201` data: conversation object with `other_user`, `last_message`, `unread_count`, `created_at`.
+Creates the conversation and stores the initial message only the first time.
+If the conversation already exists, this endpoint returns the existing
+conversation and does not append the message again. Use
+`POST /conversations/:id/messages` for follow-up messages.
+
+Success `201` data: conversation object when newly created.
+
+Success `200` data: existing conversation object when it already exists.
 
 ### GET `/conversations`
 
@@ -276,6 +449,70 @@ Success `201` data: message object (`id`, `conversation_id`, `sender_id`, `conte
 
 All admin endpoints require authenticated user with role `admin`.
 
+### GET `/admin/users`
+
+Query:
+
+- `role` optional, `customer` or `admin`
+- `page` optional
+- `limit` optional
+
+Success `200` data:
+
+```json
+{
+  "users": [
+    {
+      "id": "uuid",
+      "email": "kwame@email.com",
+      "display_name": "Kwame",
+      "phone": "0240000000",
+      "role": "customer",
+      "created_at": "2026-04-29T12:00:00Z",
+      "updated_at": "2026-04-29T12:00:00Z"
+    }
+  ],
+  "meta": {
+    "total": 1,
+    "page": 1,
+    "limit": 20,
+    "total_pages": 1,
+    "has_next": false,
+    "has_prev": false
+  }
+}
+```
+
+### PATCH `/admin/users/:id`
+
+Request body may include any subset of:
+
+```json
+{
+  "display_name": "Kwame Mensah",
+  "phone": "0240000000",
+  "role": "customer"
+}
+```
+
+Allowed roles: `customer`, `admin`.
+
+Success `200` data:
+
+```json
+{
+  "user": {
+    "id": "uuid",
+    "email": "kwame@email.com",
+    "display_name": "Kwame Mensah",
+    "phone": "0240000000",
+    "role": "customer",
+    "created_at": "2026-04-29T12:00:00Z",
+    "updated_at": "2026-04-29T12:30:00Z"
+  }
+}
+```
+
 ### GET `/admin/applications`
 
 Query:
@@ -284,7 +521,49 @@ Query:
 - `page` optional
 - `limit` optional
 
-Returns paginated applications across all users.
+Returns paginated applications across all users. Unlike the customer-facing
+application list, each item also includes a `customer` object so the admin UI
+can show who submitted it without making extra user lookups.
+
+Success `200` data:
+
+```json
+{
+  "applications": [
+    {
+      "id": "uuid",
+      "user_id": "uuid",
+      "customer": {
+        "id": "uuid",
+        "email": "kwame@email.com",
+        "display_name": "Kwame",
+        "phone": "0240000000",
+        "role": "customer"
+      },
+      "package_type": "custom",
+      "package_name": "",
+      "cart_items": [],
+      "total_amount": 650,
+      "monthly_amount": 217,
+      "status": "pending",
+      "staff_number": "GS123456",
+      "mandate_number": "MND-001",
+      "institution": "Ghana Health Service",
+      "ghana_card_number": "GHA-000-0000-0",
+      "created_at": "2026-04-29T12:00:00Z",
+      "updated_at": "2026-04-29T12:00:00Z"
+    }
+  ],
+  "meta": {
+    "total": 1,
+    "page": 1,
+    "limit": 20,
+    "total_pages": 1,
+    "has_next": false,
+    "has_prev": false
+  }
+}
+```
 
 ### PATCH `/admin/applications/:id`
 

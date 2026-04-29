@@ -2,6 +2,7 @@ package handlers
 
 import (
 	"net/http"
+	"strings"
 
 	"github.com/GordenArcher/lj-list-api/internal/services"
 	"github.com/GordenArcher/lj-list-api/internal/utils"
@@ -16,8 +17,134 @@ func NewProductHandler(productService *services.ProductService) *ProductHandler 
 	return &ProductHandler{productService: productService}
 }
 
+type createProductRequest struct {
+	Name     string `json:"name"`
+	Category string `json:"category"`
+	Price    int    `json:"price"`
+	Unit     string `json:"unit"`
+	Active   *bool  `json:"active,omitempty"`
+}
+
+type updateProductRequest struct {
+	Name     *string `json:"name,omitempty"`
+	Category *string `json:"category,omitempty"`
+	Price    *int    `json:"price,omitempty"`
+	Unit     *string `json:"unit,omitempty"`
+	Active   *bool   `json:"active,omitempty"`
+}
+
+func (h *ProductHandler) Create(c *gin.Context) {
+	var req createProductRequest
+	if err := c.ShouldBindJSON(&req); err != nil {
+		utils.Error(c, http.StatusUnprocessableEntity, "INVALID_REQUEST", "Failed to parse request body", map[string][]string{
+			"body": {err.Error()},
+		})
+		return
+	}
+
+	product, err := h.productService.CreateProduct(c.Request.Context(), services.CreateProductInput{
+		Name:     req.Name,
+		Category: req.Category,
+		Price:    req.Price,
+		Unit:     req.Unit,
+		Active:   req.Active,
+	})
+	if err != nil {
+		utils.HandleError(c, err, "Failed to create product")
+		return
+	}
+
+	utils.Success(c, http.StatusCreated, "Product created successfully", product)
+}
+
+func (h *ProductHandler) Update(c *gin.Context) {
+	var req updateProductRequest
+	if err := c.ShouldBindJSON(&req); err != nil {
+		utils.Error(c, http.StatusUnprocessableEntity, "INVALID_REQUEST", "Failed to parse request body", map[string][]string{
+			"body": {err.Error()},
+		})
+		return
+	}
+
+	product, err := h.productService.UpdateProduct(c.Request.Context(), c.Param("id"), services.UpdateProductInput{
+		Name:     req.Name,
+		Category: req.Category,
+		Price:    req.Price,
+		Unit:     req.Unit,
+		Active:   req.Active,
+	})
+	if err != nil {
+		utils.HandleError(c, err, "Failed to update product")
+		return
+	}
+
+	utils.Success(c, http.StatusOK, "Product updated successfully", product)
+}
+
+func (h *ProductHandler) AddImages(c *gin.Context) {
+	if err := c.Request.ParseMultipartForm(64 << 20); err != nil {
+		utils.Error(c, http.StatusUnprocessableEntity, "INVALID_REQUEST", "Failed to parse form data", map[string][]string{
+			"body": {err.Error()},
+		})
+		return
+	}
+
+	uploads := make([]services.ProductImageUploadInput, 0)
+	if c.Request.MultipartForm != nil && c.Request.MultipartForm.File != nil {
+		for _, fieldName := range []string{"images", "image"} {
+			for _, fileHeader := range c.Request.MultipartForm.File[fieldName] {
+				file, err := fileHeader.Open()
+				if err != nil {
+					utils.Error(c, http.StatusUnprocessableEntity, "INVALID_REQUEST", "Failed to read uploaded image", map[string][]string{
+						"images": {"unable to open one or more uploaded files"},
+					})
+					return
+				}
+				defer file.Close()
+
+				uploads = append(uploads, services.ProductImageUploadInput{
+					Image:            file,
+					ImageFilename:    fileHeader.Filename,
+					ImageContentType: fileHeader.Header.Get("Content-Type"),
+				})
+			}
+		}
+	}
+
+	images, err := h.productService.AddProductImages(c.Request.Context(), c.Param("id"), uploads)
+	if err != nil {
+		utils.HandleError(c, err, "Failed to add product images")
+		return
+	}
+
+	utils.Success(c, http.StatusCreated, "Product images added successfully", gin.H{
+		"images": images,
+	})
+}
+
+func (h *ProductHandler) ListImages(c *gin.Context) {
+	images, err := h.productService.GetProductImages(c.Request.Context(), c.Param("id"))
+	if err != nil {
+		utils.HandleError(c, err, "Failed to retrieve product images")
+		return
+	}
+
+	utils.Success(c, http.StatusOK, "Product images retrieved", gin.H{
+		"images": images,
+	})
+}
+
+func (h *ProductHandler) DeleteImage(c *gin.Context) {
+	if err := h.productService.DeleteProductImage(c.Request.Context(), c.Param("id"), c.Param("imageId")); err != nil {
+		utils.HandleError(c, err, "Failed to delete product image")
+		return
+	}
+
+	utils.Success(c, http.StatusOK, "Product image deleted", nil)
+}
+
 func (h *ProductHandler) List(c *gin.Context) {
-	category := c.Query("category")
+	category := strings.TrimSpace(c.Query("category"))
 
 	// Extract pagination parameters from query string.
 	// Default: page=1, limit=20. Max limit is 100 to prevent abuse.

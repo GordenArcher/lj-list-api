@@ -33,6 +33,59 @@ func ValidateDisplayName(name string) bool {
 	return len(trimmed) >= 2 && len(trimmed) <= 100
 }
 
+// NormalizePhone removes common formatting characters so we store a stable
+// representation regardless of whether the client submits spaces, dashes, or
+// parentheses. A leading + is preserved for international numbers.
+func NormalizePhone(phone string) string {
+	trimmed := strings.TrimSpace(phone)
+	if trimmed == "" {
+		return ""
+	}
+
+	var b strings.Builder
+	for i, r := range trimmed {
+		switch {
+		case r >= '0' && r <= '9':
+			b.WriteRune(r)
+		case r == '+' && i == 0 && b.Len() == 0:
+			b.WriteRune(r)
+		case r == ' ' || r == '-' || r == '(' || r == ')':
+			continue
+		default:
+			return trimmed
+		}
+	}
+
+	return b.String()
+}
+
+// ValidatePhone accepts pragmatic phone numbers rather than country-specific
+// formats. After normalization, it requires 7-15 digits with an optional
+// leading + for international notation.
+func ValidatePhone(phone string) bool {
+	normalized := NormalizePhone(phone)
+	if normalized == "" {
+		return false
+	}
+
+	digits := normalized
+	if normalized[0] == '+' {
+		digits = normalized[1:]
+	}
+
+	if len(digits) < 7 || len(digits) > 15 {
+		return false
+	}
+
+	for _, r := range digits {
+		if r < '0' || r > '9' {
+			return false
+		}
+	}
+
+	return true
+}
+
 // ValidateRequired checks that a string field is not empty after trimming.
 // Used for staff_number, mandate_number, and other required application
 // fields.

@@ -1,0 +1,54 @@
+# Render Blueprint for LJ-List API.
+# Set every `sync: false` variable in the Render dashboard before the first deploy.
+
+services:
+  - type: web
+    name: lj-list-api
+    runtime: docker
+    plan: free
+    autoDeployTrigger: commit
+    dockerfilePath: ./Dockerfile
+    healthCheckPath: /
+    envVars:
+      - key: PORT
+        value: "10000"
+      - key: DATABASE_URL
+        fromDatabase:
+          name: lj-list-postgres
+          property: connectionString
+      - key: JWT_SECRET
+        generateValue: true
+      - key: RATE_LIMIT_PER_MINUTE
+        value: "120"
+      - key: AUTH_RATE_LIMIT_PER_MINUTE
+        value: "30"
+      - key: CORS_ALLOWED_ORIGINS
+        sync: false
+      - key: COOKIE_SECURE
+        value: "true"
+      - key: COOKIE_SAME_SITE
+        value: "None"
+      - key: CLOUDINARY_CLOUD_NAME
+        sync: false
+      - key: CLOUDINARY_API_KEY
+        sync: false
+      - key: CLOUDINARY_API_SECRET
+        sync: false
+      - key: HUBTEL_CLIENT_ID
+        sync: false
+      - key: HUBTEL_CLIENT_SECRET
+        sync: false
+      - key: HUBTEL_SMS_URL
+        value: "https://smsc.hubtel.com/v1/messages/send"
+      - key: HUBTEL_SENDER_ID
+        value: "LJList"
+      - key: ADMIN_EMAIL
+        sync: false
+      - key: ADMIN_NUMBER
+        sync: false
+      - key: MIN_ORDER
+        value: "549"
+
+databases:
+  - name: lj-list-postgres
+    plan: free

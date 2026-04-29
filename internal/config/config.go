@@ -29,8 +29,10 @@ type Config struct {
 
 	// Hubtel is our SMS provider for Ghana. Used to notify the admin about
 	// new applications and new chat messages.
-	HubtelAPIKey   string
-	HubtelSenderID string
+	HubtelClientID     string
+	HubtelClientSecret string
+	HubtelSMSURL       string
+	HubtelSenderID     string
 
 	// AllowedOrigins is the CORS allowlist. Default includes Vite dev server.
 	AllowedOrigins []string
@@ -44,6 +46,10 @@ type Config struct {
 	// Set this before deploying so the business owner can create an account
 	// and immediately access admin endpoints.
 	AdminEmail string
+
+	// AdminNumber receives operational SMS notifications about new
+	// applications and customer messages.
+	AdminNumber string
 
 	// MinOrder is the minimum cart total in Ghana cedis. Applications below
 	// this threshold are rejected. Lives in config rather than a constant
@@ -73,8 +79,10 @@ func Load() Config {
 		CloudinaryAPIKey:    godenv.Get("CLOUDINARY_API_KEY", ""),
 		CloudinaryAPISecret: godenv.Get("CLOUDINARY_API_SECRET", ""),
 
-		HubtelAPIKey:   godenv.Get("HUBTEL_API_KEY", ""),
-		HubtelSenderID: godenv.Get("HUBTEL_SENDER_ID", "LJList"),
+		HubtelClientID:     godenv.Get("HUBTEL_CLIENT_ID", ""),
+		HubtelClientSecret: godenv.Get("HUBTEL_CLIENT_SECRET", godenv.Get("HUBTEL_API_KEY", "")),
+		HubtelSMSURL:       godenv.Get("HUBTEL_SMS_URL", "https://smsc.hubtel.com/v1/messages/send"),
+		HubtelSenderID:     godenv.Get("HUBTEL_SENDER_ID", "LJList"),
 		AllowedOrigins: parseCSV(
 			godenv.Get("CORS_ALLOWED_ORIGINS", "http://localhost:5173"),
 			[]string{"http://localhost:5173"},
@@ -83,8 +91,9 @@ func Load() Config {
 		CookieDomain:   godenv.Get("COOKIE_DOMAIN", ""),
 		CookieSameSite: normalizeSameSite(godenv.Get("COOKIE_SAME_SITE", "Lax"), "Lax"),
 
-		AdminEmail: godenv.Get("ADMIN_EMAIL", ""),
-		MinOrder:   parsePositiveInt(godenv.Get("MIN_ORDER", "549"), 549),
+		AdminEmail:  godenv.Get("ADMIN_EMAIL", ""),
+		AdminNumber: godenv.Get("ADMIN_NUMBER", ""),
+		MinOrder:    parsePositiveInt(godenv.Get("MIN_ORDER", "549"), 549),
 	}
 }
 

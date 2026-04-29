@@ -1,12 +1,13 @@
 // Package main is the entrypoint for the LJ-List API server. It wires together
 // configuration, database, middleware, and routes, then starts an HTTP server
-// with graceful shutdown. No business logic lives here — this file only
+// with graceful shutdown. No business logic lives here, this file only
 // orchestrates dependencies. If you're looking for how a request is handled,
 // start in internal/routes/routes.go and follow the chain down.
 package main
 
 import (
 	"context"
+	"errors"
 	"fmt"
 	"log"
 	"net/http"
@@ -26,11 +27,13 @@ import (
 func main() {
 	// Environment
 	//
-	// godenv must run before any package reads an environment variable.
-	// MustLoad panics if .env is missing or unparseable — we want the server
-	// to fail loudly during bootstrap, not silently run with half-configured
-	// values that cause confusing runtime errors later.
-	godenv.MustLoad()
+	// Load .env for local development, but don't require it in containerized
+	// or managed environments where variables are injected externally.
+	// Parse errors still abort startup because a malformed .env is a real
+	// configuration bug, not an acceptable fallback condition.
+	if err := godenv.Load(); err != nil && !errors.Is(err, os.ErrNotExist) {
+		log.Fatalf("failed to load .env: %v", err)
+	}
 
 	cfg := config.Load()
 

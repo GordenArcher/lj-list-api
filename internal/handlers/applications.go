@@ -10,10 +10,14 @@ import (
 
 type ApplicationHandler struct {
 	applicationService *services.ApplicationService
+	smsService         *services.SMSService
 }
 
-func NewApplicationHandler(applicationService *services.ApplicationService) *ApplicationHandler {
-	return &ApplicationHandler{applicationService: applicationService}
+func NewApplicationHandler(applicationService *services.ApplicationService, smsService *services.SMSService) *ApplicationHandler {
+	return &ApplicationHandler{
+		applicationService: applicationService,
+		smsService:         smsService,
+	}
 }
 
 type submitApplicationRequest struct {
@@ -79,6 +83,7 @@ func (h *ApplicationHandler) Create(c *gin.Context) {
 		return
 	}
 
+	h.smsService.NotifyAdminNewApplication(c.Request.Context(), userID, app)
 	utils.Success(c, http.StatusCreated, "Application submitted successfully", app)
 }
 

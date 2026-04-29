@@ -11,8 +11,18 @@ import (
 )
 
 type ConversationService struct {
-	conversationRepo *repositories.ConversationRepository
-	userRepo         *repositories.UserRepository
+	conversationRepo conversationRepository
+	userRepo         conversationUserRepository
+}
+
+type conversationRepository interface {
+	FindOrCreateWithInitialMessage(ctx context.Context, userOne, userTwo, senderID, initialMessage string) (*models.Conversation, bool, error)
+	FindAllByUser(ctx context.Context, userID string, offset, limit int) ([]models.ConversationWithDetails, error)
+	CountByUser(ctx context.Context, userID string) (int, error)
+}
+
+type conversationUserRepository interface {
+	FindByID(ctx context.Context, id string) (*models.User, error)
 }
 
 func NewConversationService(
@@ -26,16 +36,22 @@ func NewConversationService(
 }
 
 // StartOrGet finds an existing conversation between the customer and the
-// admin, or creates one. The first message is sent immediately so the
-// conversation list has something to display. Returns the conversation
-// with the other user's details.
-func (s *ConversationService) StartOrGet(ctx context.Context, customerID, adminID, initialMessage string) (*models.ConversationWithDetails, error) {
-	conv, err := s.conversationRepo.FindOrCreateWithInitialMessage(ctx, customerID, adminID, customerID, initialMessage)
+// admin, or creates one. The initial message is only inserted when the
+// conversation is created for the first time, keeping the endpoint idempotent
+// for retries or repeated "start conversation" actions. The bool return
+// reports whether a new conversation was created.
+func (s *ConversationService) StartOrGet(ctx context.Context, customerID, adminID, initialMessage string) (*models.ConversationWithDetails, bool, error) {
+	conv, created, err := s.conversationRepo.FindOrCreateWithInitialMessage(ctx, customerID, adminID, customerID, initialMessage)
 	if err != nil {
-		return nil, apperrors.Wrap(apperrors.KindInternal, "Failed to start conversation", err)
+		return nil, false, apperrors.Wrap(apperrors.KindInternal, "Failed to start conversation", err)
 	}
 
-	return s.buildConversationDetails(ctx, conv, customerID)
+	details, err := s.buildConversationDetails(ctx, conv, customerID)
+	if err != nil {
+		return nil, false, err
+	}
+
+	return details, created, nil
 }
 
 // GetUserConversations returns paginated conversations for a user with the other

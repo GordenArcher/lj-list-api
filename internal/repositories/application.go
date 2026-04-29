@@ -98,18 +98,58 @@ func (r *ApplicationRepository) FindAll(ctx context.Context, status string, offs
 
 	if status == "" {
 		query := `
-			SELECT id, user_id, package_type, package_name, cart_items, total_amount, monthly_amount, status, staff_number, mandate_number, institution, ghana_card_number, created_at, updated_at
-			FROM applications
-			ORDER BY created_at DESC
+			SELECT
+				a.id,
+				a.user_id,
+				u.id,
+				u.email,
+				u.display_name,
+				u.phone,
+				u.role,
+				a.package_type,
+				a.package_name,
+				a.cart_items,
+				a.total_amount,
+				a.monthly_amount,
+				a.status,
+				a.staff_number,
+				a.mandate_number,
+				a.institution,
+				a.ghana_card_number,
+				a.created_at,
+				a.updated_at
+			FROM applications a
+			JOIN users u ON u.id = a.user_id
+			ORDER BY a.created_at DESC
 			OFFSET $1 LIMIT $2
 		`
 		rows, err = r.pool.Query(ctx, query, offset, limit)
 	} else {
 		query := `
-			SELECT id, user_id, package_type, package_name, cart_items, total_amount, monthly_amount, status, staff_number, mandate_number, institution, ghana_card_number, created_at, updated_at
-			FROM applications
-			WHERE status = $1
-			ORDER BY created_at DESC
+			SELECT
+				a.id,
+				a.user_id,
+				u.id,
+				u.email,
+				u.display_name,
+				u.phone,
+				u.role,
+				a.package_type,
+				a.package_name,
+				a.cart_items,
+				a.total_amount,
+				a.monthly_amount,
+				a.status,
+				a.staff_number,
+				a.mandate_number,
+				a.institution,
+				a.ghana_card_number,
+				a.created_at,
+				a.updated_at
+			FROM applications a
+			JOIN users u ON u.id = a.user_id
+			WHERE a.status = $1
+			ORDER BY a.created_at DESC
 			OFFSET $2 LIMIT $3
 		`
 		rows, err = r.pool.Query(ctx, query, status, offset, limit)
@@ -120,7 +160,7 @@ func (r *ApplicationRepository) FindAll(ctx context.Context, status string, offs
 	}
 	defer rows.Close()
 
-	return scanApplications(rows)
+	return scanApplicationsWithCustomer(rows)
 }
 
 // CountAll returns the total number of applications, optionally filtered by status.
@@ -219,6 +259,53 @@ func scanApplications(rows pgx.Rows) ([]models.Application, error) {
 		); err != nil {
 			return nil, fmt.Errorf("scan application: %w", err)
 		}
+		if err := json.Unmarshal(cartBytes, &app.CartItems); err != nil {
+			return nil, fmt.Errorf("unmarshal cart items: %w", err)
+		}
+		apps = append(apps, app)
+	}
+
+	if apps == nil {
+		apps = []models.Application{}
+	}
+
+	return apps, nil
+}
+
+func scanApplicationsWithCustomer(rows pgx.Rows) ([]models.Application, error) {
+	var apps []models.Application
+	for rows.Next() {
+		var app models.Application
+		var cartBytes []byte
+		var phone *string
+		app.Customer = &models.ApplicationCustomer{}
+
+		if err := rows.Scan(
+			&app.ID,
+			&app.UserID,
+			&app.Customer.ID,
+			&app.Customer.Email,
+			&app.Customer.DisplayName,
+			&phone,
+			&app.Customer.Role,
+			&app.PackageType,
+			&app.PackageName,
+			&cartBytes,
+			&app.TotalAmount,
+			&app.MonthlyAmount,
+			&app.Status,
+			&app.StaffNumber,
+			&app.MandateNumber,
+			&app.Institution,
+			&app.GhanaCardNumber,
+			&app.CreatedAt,
+			&app.UpdatedAt,
+		); err != nil {
+			return nil, fmt.Errorf("scan admin application: %w", err)
+		}
+
+		app.Customer.Phone = phone
+
 		if err := json.Unmarshal(cartBytes, &app.CartItems); err != nil {
 			return nil, fmt.Errorf("unmarshal cart items: %w", err)
 		}
