@@ -12,6 +12,7 @@ import (
 
 	"github.com/GordenArcher/lj-list-api/internal/config"
 	"github.com/GordenArcher/lj-list-api/internal/models"
+	"github.com/GordenArcher/lj-list-api/internal/utils"
 )
 
 const (
@@ -35,7 +36,9 @@ type SMSService struct {
 
 type smsUserRepository interface {
 	FindByID(ctx context.Context, id string) (*models.User, error)
-	FindByEmail(ctx context.Context, email string) (*models.User, error)
+	FindByPhoneNumber(ctx context.Context, phoneNumber string) (*models.User, error)
+	FindAll(ctx context.Context, role string, offset, limit int) ([]models.User, error)
+	CountAll(ctx context.Context, role string) (int, error)
 }
 
 func NewSMSService(cfg config.Config, userRepo smsUserRepository) *SMSService {
@@ -63,59 +66,80 @@ func (s *SMSService) SendNotification(phone, message string) {
 	}()
 }
 
-// NotifyAdminNewApplication sends a readable operational alert to the
-// configured admin number when a customer submits a new application. The
-// copy intentionally avoids raw internal IDs and instead summarizes the
-// customer name, requested package/order, and repayment context.
+// SendVerificationOTP sends an activation OTP to the registering user.
+// Unlike operational notifications, this is synchronous so the auth flow can
+// surface delivery failures to the caller.
+func (s *SMSService) SendVerificationOTP(ctx context.Context, phoneNumber, displayName, otp string) error {
+	greeting := "Hello"
+	if trimmed := strings.TrimSpace(displayName); trimmed != "" {
+		greeting = "Hello " + trimmed
+	}
+
+	message := fmt.Sprintf(
+		"%s, your LJ-List activation code is %s. It expires in 10 minutes.",
+		greeting,
+		otp,
+	)
+
+	return s.send(ctx, phoneNumber, message)
+}
+
+// NotifyAdminNewApplication sends a readable operational alert to every
+// admin account when a customer submits a new application. The copy
+// intentionally avoids raw internal IDs and instead summarizes the customer
+// name, requested package/order, and repayment context.
 func (s *SMSService) NotifyAdminNewApplication(ctx context.Context, customerID string, app *models.Application) {
-	adminNumber := strings.TrimSpace(s.cfg.AdminNumber)
-	if adminNumber == "" {
-		log.Printf("SMS skipped for application %s: ADMIN_NUMBER is not configured", app.ID)
+	admins := s.adminRecipients(ctx)
+	if len(admins) == 0 {
+		log.Printf("SMS skipped for application %s: no admin recipients are configured", app.ID)
 		return
 	}
 
-	adminName := s.resolveAdminName(ctx)
 	customerName := s.resolveUserName(ctx, customerID, "A customer")
 	requestSummary := summarizeApplicationRequest(app)
 	institution := strings.TrimSpace(app.Institution)
 
-	message := fmt.Sprintf(
-		"Hello %s, %s submitted a new LJ-List application for %s. Total: GHC %d. Monthly repayment: GHC %d. Institution: %s. Please review it in the dashboard.",
-		adminName,
-		customerName,
-		requestSummary,
-		app.TotalAmount,
-		app.MonthlyAmount,
-		valueOrFallback(institution, "not provided"),
-	)
-	s.SendNotification(adminNumber, message)
+	for _, admin := range admins {
+		message := fmt.Sprintf(
+			"Hello %s, %s submitted a new LJ-List application for %s. Total: GHC %d. Monthly repayment: GHC %d. Institution: %s. Please review it in the dashboard.",
+			bestDisplayName(&admin, "Admin"),
+			customerName,
+			requestSummary,
+			app.TotalAmount,
+			app.MonthlyAmount,
+			valueOrFallback(institution, "not provided"),
+		)
+		s.SendNotification(admin.PhoneNumber, message)
+	}
 }
 
-// NotifyAdminNewMessage alerts the configured admin number about new customer
-// chat activity. Messages sent by the admin are intentionally ignored so the
-// admin does not receive an SMS for their own outgoing replies. The SMS copy
-// is phrased for business use, using names and a short preview instead of an
+// NotifyAdminNewMessage alerts every admin account about new customer chat
+// activity. Messages sent by the admin are intentionally ignored so the admin
+// does not receive an SMS for their own outgoing replies. The SMS copy is
+// phrased for business use, using names and a short preview instead of an
 // internal conversation UUID.
 func (s *SMSService) NotifyAdminNewMessage(ctx context.Context, senderID, senderRole, content string) {
 	if senderRole == "admin" {
 		return
 	}
 
-	adminNumber := strings.TrimSpace(s.cfg.AdminNumber)
-	if adminNumber == "" {
-		log.Printf("SMS skipped for customer message from %s: ADMIN_NUMBER is not configured", senderID)
+	admins := s.adminRecipients(ctx)
+	if len(admins) == 0 {
+		log.Printf("SMS skipped for customer message from %s: no admin recipients are configured", senderID)
 		return
 	}
 
-	adminName := s.resolveAdminName(ctx)
 	customerName := s.resolveUserName(ctx, senderID, "A customer")
-	message := fmt.Sprintf(
-		"Hello %s, %s sent you a new message on LJ-List: \"%s\". Please reply in the dashboard.",
-		adminName,
-		customerName,
-		smsPreview(content, 120),
-	)
-	s.SendNotification(adminNumber, message)
+	preview := smsPreview(content, 120)
+	for _, admin := range admins {
+		message := fmt.Sprintf(
+			"Hello %s, %s sent you a new message on LJ-List: \"%s\". Please reply in the dashboard.",
+			bestDisplayName(&admin, "Admin"),
+			customerName,
+			preview,
+		)
+		s.SendNotification(admin.PhoneNumber, message)
+	}
 }
 
 // send validates configuration, prepares the exact Hubtel quick-send URL,
@@ -264,10 +288,6 @@ func smsPreview(content string, maxLen int) string {
 	return trimmed[:maxLen-3] + "..."
 }
 
-func (s *SMSService) resolveAdminName(ctx context.Context) string {
-	return s.resolveUserNameByEmail(ctx, s.cfg.AdminEmail, "Admin")
-}
-
 func (s *SMSService) resolveUserName(ctx context.Context, userID, fallback string) string {
 	if s.userRepo == nil {
 		return fallback
@@ -286,22 +306,53 @@ func (s *SMSService) resolveUserName(ctx context.Context, userID, fallback strin
 	return bestDisplayName(user, fallback)
 }
 
-func (s *SMSService) resolveUserNameByEmail(ctx context.Context, email, fallback string) string {
+func (s *SMSService) resolveUserNameByPhoneNumber(ctx context.Context, phoneNumber, fallback string) string {
 	if s.userRepo == nil {
 		return fallback
 	}
 
-	normalizedEmail := strings.TrimSpace(email)
-	if normalizedEmail == "" {
+	normalizedPhoneNumber := utils.NormalizePhone(phoneNumber)
+	if normalizedPhoneNumber == "" {
 		return fallback
 	}
 
-	user, err := s.userRepo.FindByEmail(smsLookupContext(ctx), normalizedEmail)
+	user, err := s.userRepo.FindByPhoneNumber(smsLookupContext(ctx), normalizedPhoneNumber)
 	if err != nil {
 		return fallback
 	}
 
 	return bestDisplayName(user, fallback)
+}
+
+func (s *SMSService) adminRecipients(ctx context.Context) []models.User {
+	if s.userRepo == nil {
+		return s.fallbackAdminRecipients()
+	}
+
+	count, err := s.userRepo.CountAll(ctx, "admin")
+	if err != nil || count <= 0 {
+		return s.fallbackAdminRecipients()
+	}
+
+	admins, err := s.userRepo.FindAll(ctx, "admin", 0, count)
+	if err != nil || len(admins) == 0 {
+		return s.fallbackAdminRecipients()
+	}
+
+	return admins
+}
+
+func (s *SMSService) fallbackAdminRecipients() []models.User {
+	phone := utils.NormalizePhone(s.cfg.AdminNumber)
+	if phone == "" {
+		return nil
+	}
+
+	return []models.User{{
+		DisplayName: "Admin",
+		PhoneNumber: phone,
+		Role:        "admin",
+	}}
 }
 
 func smsLookupContext(ctx context.Context) context.Context {
@@ -318,7 +369,7 @@ func bestDisplayName(user *models.User, fallback string) string {
 	if trimmed := strings.TrimSpace(user.DisplayName); trimmed != "" {
 		return trimmed
 	}
-	if trimmed := strings.TrimSpace(user.Email); trimmed != "" {
+	if trimmed := strings.TrimSpace(user.PhoneNumber); trimmed != "" {
 		return trimmed
 	}
 	return fallback

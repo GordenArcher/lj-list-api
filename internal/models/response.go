@@ -79,17 +79,18 @@ type APIDocumentation struct {
 // The curl example field is not optional, a working copy-pasteable
 // command is worth more than three paragraphs of prose.
 type RouteDoc struct {
-	Method          string            `json:"method"`
-	Path            string            `json:"path"`
-	Description     string            `json:"description"`
-	Auth            bool              `json:"auth"`
-	AdminOnly       bool              `json:"admin_only,omitempty"`
-	Headers         map[string]string `json:"headers,omitempty"`
-	Request         any               `json:"request,omitempty"`
-	Response        map[string]any    `json:"response,omitempty"`
-	ResponseSuccess APIResponse       `json:"response_success,omitempty"`
-	ResponseError   APIResponse       `json:"response_error,omitempty"`
-	Example         string            `json:"example"`
+	Method          string                 `json:"method"`
+	Path            string                 `json:"path"`
+	Description     string                 `json:"description"`
+	Auth            bool                   `json:"auth"`
+	AdminOnly       bool                   `json:"admin_only,omitempty"`
+	Headers         map[string]string      `json:"headers,omitempty"`
+	Request         any                    `json:"request,omitempty"`
+	Response        map[string]any         `json:"response,omitempty"`
+	ResponseSuccess APIResponse            `json:"response_success,omitempty"`
+	ResponseError   APIResponse            `json:"response_error,omitempty"`
+	ErrorExamples   map[string]APIResponse `json:"error_examples,omitempty"`
+	Example         string                 `json:"example"`
 }
 
 // NewDocResponse wraps the API documentation in the standard envelope.

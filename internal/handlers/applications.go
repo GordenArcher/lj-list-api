@@ -47,17 +47,8 @@ func (h *ApplicationHandler) Create(c *gin.Context) {
 	if req.PackageType == "fixed" && req.PackageName == "" {
 		errs["package_name"] = []string{"required for fixed packages"}
 	}
-	if !utils.ValidateRequired(req.StaffNumber) {
-		errs["staff_number"] = []string{"required"}
-	}
 	if !utils.ValidateRequired(req.MandateNumber) {
 		errs["mandate_number"] = []string{"required"}
-	}
-	if !utils.ValidateRequired(req.Institution) {
-		errs["institution"] = []string{"required"}
-	}
-	if !utils.ValidateRequired(req.GhanaCardNumber) {
-		errs["ghana_card_number"] = []string{"required"}
 	}
 
 	if len(errs) > 0 {

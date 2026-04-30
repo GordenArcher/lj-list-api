@@ -3,6 +3,7 @@ package handlers
 import (
 	"net/http"
 
+	"github.com/GordenArcher/lj-list-api/internal/models"
 	"github.com/GordenArcher/lj-list-api/internal/services"
 	"github.com/GordenArcher/lj-list-api/internal/utils"
 	"github.com/gin-gonic/gin"
@@ -17,13 +18,17 @@ func NewUserHandler(userService *services.UserService) *UserHandler {
 }
 
 type updateProfileRequest struct {
-	DisplayName *string `json:"display_name,omitempty"`
-	Phone       *string `json:"phone,omitempty"`
+	DisplayName     *string `json:"display_name,omitempty"`
+	PhoneNumber     *string `json:"phone_number,omitempty"`
+	StaffNumber     *string `json:"staff_number,omitempty"`
+	Institution     *string `json:"institution,omitempty"`
+	GhanaCardNumber *string `json:"ghana_card_number,omitempty"`
+	Password        *string `json:"password,omitempty"`
 }
 
 type adminUpdateUserRequest struct {
 	DisplayName *string `json:"display_name,omitempty"`
-	Phone       *string `json:"phone,omitempty"`
+	PhoneNumber *string `json:"phone_number,omitempty"`
 	Role        *string `json:"role,omitempty"`
 }
 
@@ -35,7 +40,7 @@ func (h *UserHandler) GetProfile(c *gin.Context) {
 	}
 
 	utils.Success(c, http.StatusOK, "Profile retrieved", gin.H{
-		"user": user,
+		"user": profileUserPayload(user),
 	})
 }
 
@@ -49,8 +54,12 @@ func (h *UserHandler) UpdateProfile(c *gin.Context) {
 	}
 
 	user, err := h.userService.UpdateProfile(c.Request.Context(), utils.GetUserIDFromContext(c), services.UpdateProfileInput{
-		DisplayName: req.DisplayName,
-		Phone:       req.Phone,
+		DisplayName:     req.DisplayName,
+		PhoneNumber:     req.PhoneNumber,
+		StaffNumber:     req.StaffNumber,
+		Institution:     req.Institution,
+		GhanaCardNumber: req.GhanaCardNumber,
+		Password:        req.Password,
 	})
 	if err != nil {
 		utils.HandleError(c, err, "Failed to update profile")
@@ -58,7 +67,7 @@ func (h *UserHandler) UpdateProfile(c *gin.Context) {
 	}
 
 	utils.Success(c, http.StatusOK, "Profile updated", gin.H{
-		"user": user,
+		"user": profileUserPayload(user),
 	})
 }
 
@@ -95,7 +104,7 @@ func (h *UserHandler) UpdateUser(c *gin.Context) {
 
 	user, err := h.userService.AdminUpdateUser(c.Request.Context(), c.Param("id"), services.AdminUpdateUserInput{
 		DisplayName: req.DisplayName,
-		Phone:       req.Phone,
+		PhoneNumber: req.PhoneNumber,
 		Role:        req.Role,
 	})
 	if err != nil {
@@ -106,4 +115,18 @@ func (h *UserHandler) UpdateUser(c *gin.Context) {
 	utils.Success(c, http.StatusOK, "User updated", gin.H{
 		"user": user,
 	})
+}
+
+func profileUserPayload(user *models.User) gin.H {
+	return gin.H{
+		"id":                user.ID,
+		"display_name":      user.DisplayName,
+		"phone_number":      user.PhoneNumber,
+		"staff_number":      user.StaffNumber,
+		"institution":       user.Institution,
+		"ghana_card_number": user.GhanaCardNumber,
+		"role":              user.Role,
+		"created_at":        user.CreatedAt,
+		"updated_at":        user.UpdatedAt,
+	}
 }

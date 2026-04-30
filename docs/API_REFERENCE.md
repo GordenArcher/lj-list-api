@@ -25,7 +25,7 @@ Error responses use `status: "error"` and include `errors`:
   "message": "Validation failed",
   "code": "VALIDATION_ERROR",
   "errors": {
-    "email": ["valid email is required"]
+    "phone_number": ["must be a valid phone number"]
   },
   "request_id": "uuid",
   "metadata": {
@@ -71,26 +71,173 @@ List responses include:
 
 ### POST `/auth/signup`
 
+Required fields:
+
+- `phone_number`
+- `staff_number`
+- `institution`
+- `ghana_card_number`
+- `password`
+- `display_name` or `name`
+
 Request body:
 
 ```json
 {
-  "email": "kwame@email.com",
+  "phone_number": "+233240000000",
+  "staff_number": "GES-2024-0018",
+  "institution": "Ghana Education Service",
+  "ghana_card_number": "GHA-123456789-0",
   "password": "password123",
-  "display_name": "Kwame"
+  "display_name": "Kwame Mensah"
 }
 ```
 
-Success `201` data:
+Success `202` data:
 
 ```json
 {
   "user": {
     "id": "uuid",
-    "email": "kwame@email.com",
-    "display_name": "Kwame",
-    "phone": null,
+    "display_name": "Kwame Mensah",
+    "phone_number": "+233240000000",
     "role": "customer"
+  },
+  "verification": {
+    "phone_number": "+233240000000",
+    "expires_in_minutes": 10
+  }
+}
+```
+
+Error example `409 duplicate phone_number`:
+
+```json
+{
+  "status": "error",
+  "message": "Phone number already registered",
+  "code": "CONFLICT",
+  "errors": {
+    "phone_number": ["this phone number is already taken"]
+  },
+  "request_id": "uuid",
+  "metadata": {
+    "timestamp": "RFC3339 UTC"
+  }
+}
+```
+
+Error example `409 duplicate staff_number`:
+
+```json
+{
+  "status": "error",
+  "message": "Staff number already registered",
+  "code": "CONFLICT",
+  "errors": {
+    "staff_number": ["this staff number is already taken"]
+  },
+  "request_id": "uuid",
+  "metadata": {
+    "timestamp": "RFC3339 UTC"
+  }
+}
+```
+
+Error example `409 duplicate ghana_card_number`:
+
+```json
+{
+  "status": "error",
+  "message": "Ghana Card number already registered",
+  "code": "CONFLICT",
+  "errors": {
+    "ghana_card_number": ["this Ghana Card number is already taken"]
+  },
+  "request_id": "uuid",
+  "metadata": {
+    "timestamp": "RFC3339 UTC"
+  }
+}
+```
+
+Error example `422 validation error`:
+
+```json
+{
+  "status": "error",
+  "message": "Validation failed",
+  "code": "VALIDATION_ERROR",
+  "errors": {
+    "phone_number": ["must be a valid phone number"],
+    "password": ["must be at least 8 characters"],
+    "display_name": ["must be between 2 and 100 characters"]
+  },
+  "request_id": "uuid",
+  "metadata": {
+    "timestamp": "RFC3339 UTC"
+  }
+}
+```
+
+### POST `/auth/verify-otp`
+
+Request body:
+
+```json
+{
+  "phone_number": "+233240000000",
+  "otp": "123456"
+}
+```
+
+Success `200` data:
+
+```json
+{
+  "user": {
+    "id": "uuid",
+    "display_name": "Kwame Mensah",
+    "phone_number": "+233240000000",
+    "role": "customer"
+  }
+}
+```
+
+Error example `422 invalid or expired otp`:
+
+```json
+{
+  "status": "error",
+  "message": "Invalid or expired OTP",
+  "code": "VALIDATION_ERROR",
+  "errors": {
+    "otp": ["otp is invalid or expired"]
+  },
+  "request_id": "uuid",
+  "metadata": {
+    "timestamp": "RFC3339 UTC"
+  }
+}
+```
+
+### POST `/auth/resend-otp`
+
+Request body:
+
+```json
+{
+  "phone_number": "+233240000000"
+}
+```
+
+Success `200` data:
+
+```json
+{
+  "verification": {
+    "phone_number": "+233240000000",
+    "expires_in_minutes": 10
   }
 }
 ```
@@ -101,7 +248,7 @@ Request body:
 
 ```json
 {
-  "email": "kwame@email.com",
+  "phone_number": "+233240000000",
   "password": "password123"
 }
 ```
@@ -112,10 +259,61 @@ Success `200` data:
 {
   "user": {
     "id": "uuid",
-    "email": "kwame@email.com",
-    "display_name": "Kwame",
-    "phone": null,
+    "display_name": "Kwame Mensah",
+    "phone_number": "+233240000000",
     "role": "customer"
+  }
+}
+```
+
+Error example `401 invalid credentials`:
+
+```json
+{
+  "status": "error",
+  "message": "Invalid phone number or password",
+  "code": "UNAUTHORIZED",
+  "errors": {
+    "auth": ["phone number or password is incorrect"]
+  },
+  "request_id": "uuid",
+  "metadata": {
+    "timestamp": "RFC3339 UTC"
+  }
+}
+```
+
+Error example `403 account not activated`:
+
+```json
+{
+  "status": "error",
+  "message": "Account not activated",
+  "code": "FORBIDDEN",
+  "errors": {
+    "auth": ["verify the activation OTP sent to your phone number"]
+  },
+  "request_id": "uuid",
+  "metadata": {
+    "timestamp": "RFC3339 UTC"
+  }
+}
+```
+
+Error example `422 validation error`:
+
+```json
+{
+  "status": "error",
+  "message": "Validation failed",
+  "code": "VALIDATION_ERROR",
+  "errors": {
+    "phone_number": ["must be a valid phone number"],
+    "password": ["required"]
+  },
+  "request_id": "uuid",
+  "metadata": {
+    "timestamp": "RFC3339 UTC"
   }
 }
 ```
@@ -151,9 +349,11 @@ Success `200` data:
 {
   "user": {
     "id": "uuid",
-    "email": "kwame@email.com",
     "display_name": "Kwame",
-    "phone": "0240000000",
+    "phone_number": "+233240000000",
+    "staff_number": "GES-2024-0018",
+    "institution": "Ghana Education Service",
+    "ghana_card_number": "GHA-123456789-0",
     "role": "customer",
     "created_at": "2026-04-29T12:00:00Z",
     "updated_at": "2026-04-29T12:00:00Z"
@@ -170,11 +370,13 @@ Request body may include any subset of:
 ```json
 {
   "display_name": "Kwame Mensah",
-  "phone": "0240000000"
+  "phone_number": "+233240000000",
+  "staff_number": "GES-2024-0018",
+  "institution": "Ghana Education Service",
+  "ghana_card_number": "GHA-123456789-0",
+  "password": "password123"
 }
 ```
-
-Send `"phone": ""` to clear the saved phone number.
 
 Success `200` data: same `user` object as above.
 
@@ -374,6 +576,10 @@ Request body:
 }
 ```
 
+`mandate_number` is always required. `staff_number`, `institution`, and
+`ghana_card_number` may be omitted if they already exist on the authenticated
+user profile; the API will fall back to those profile values.
+
 Success `201` data: full `application` object (`id`, `user_id`, `package_type`, `cart_items`, `total_amount`, `monthly_amount`, `status`, `staff_number`, `mandate_number`, `institution`, `ghana_card_number`, `created_at`, `updated_at`).
 
 ### GET `/applications`
@@ -415,8 +621,9 @@ Request body:
 ```
 
 Creates the conversation and stores the initial message only the first time.
-If the conversation already exists, this endpoint returns the existing
-conversation and does not append the message again. Use
+The thread is routed through the support inbox, so any admin can later view
+and reply to it. If the conversation already exists, this endpoint returns
+the existing conversation and does not append the message again. Use
 `POST /conversations/:id/messages` for follow-up messages.
 
 Success `201` data: conversation object when newly created.
@@ -425,7 +632,8 @@ Success `200` data: existing conversation object when it already exists.
 
 ### GET `/conversations`
 
-Auth required. Paginated list for current user.
+Auth required. Paginated list for the current user. Admins receive the shared
+inbox view, which returns all customer threads.
 
 ### GET `/conversations/:id/messages`
 
@@ -464,9 +672,8 @@ Success `200` data:
   "users": [
     {
       "id": "uuid",
-      "email": "kwame@email.com",
       "display_name": "Kwame",
-      "phone": "0240000000",
+      "phone_number": "+233240000000",
       "role": "customer",
       "created_at": "2026-04-29T12:00:00Z",
       "updated_at": "2026-04-29T12:00:00Z"
@@ -490,7 +697,7 @@ Request body may include any subset of:
 ```json
 {
   "display_name": "Kwame Mensah",
-  "phone": "0240000000",
+  "phone_number": "+233240000000",
   "role": "customer"
 }
 ```
@@ -503,9 +710,8 @@ Success `200` data:
 {
   "user": {
     "id": "uuid",
-    "email": "kwame@email.com",
     "display_name": "Kwame Mensah",
-    "phone": "0240000000",
+    "phone_number": "+233240000000",
     "role": "customer",
     "created_at": "2026-04-29T12:00:00Z",
     "updated_at": "2026-04-29T12:30:00Z"
@@ -534,11 +740,10 @@ Success `200` data:
       "id": "uuid",
       "user_id": "uuid",
       "customer": {
-        "id": "uuid",
-        "email": "kwame@email.com",
-        "display_name": "Kwame",
-        "phone": "0240000000",
-        "role": "customer"
+      "id": "uuid",
+      "display_name": "Kwame",
+      "phone_number": "+233240000000",
+      "role": "customer"
       },
       "package_type": "custom",
       "package_name": "",
@@ -579,7 +784,8 @@ Allowed statuses: `pending`, `reviewed`, `approved`, `declined`.
 
 ### GET `/admin/conversations`
 
-Paginated conversation list for admin.
+Paginated conversation list for the shared admin inbox. Every authenticated
+admin sees the same customer thread list.
 
 ### POST `/admin/conversations/:id/messages`
 

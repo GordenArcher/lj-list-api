@@ -1,22 +1,6 @@
 package utils
 
-import (
-	"regexp"
-	"strings"
-)
-
-// ValidateEmail checks that an email string is non-empty and roughly
-// matches an email pattern. This is not RFC 5322 compliant, it's a
-// pragmatic check that catches typos without rejecting valid but unusual
-// addresses. If you need full compliance, swap the regex.
-func ValidateEmail(email string) bool {
-	if strings.TrimSpace(email) == "" {
-		return false
-	}
-	pattern := `^[a-zA-Z0-9._%+\-]+@[a-zA-Z0-9.\-]+\.[a-zA-Z]{2,}$`
-	match, _ := regexp.MatchString(pattern, email)
-	return match
-}
+import "strings"
 
 // ValidatePassword ensures a password is at least 8 characters. We don't
 // enforce complexity rules (uppercase, numbers, symbols), NIST guidelines
@@ -33,22 +17,24 @@ func ValidateDisplayName(name string) bool {
 	return len(trimmed) >= 2 && len(trimmed) <= 100
 }
 
-// NormalizePhone removes common formatting characters so we store a stable
-// representation regardless of whether the client submits spaces, dashes, or
-// parentheses. A leading + is preserved for international numbers.
+// NormalizePhone removes formatting noise and canonicalizes Ghana numbers to
+// +233XXXXXXXXX so 054..., 23354..., and +23354... all compare the same.
+// Non-Ghana numbers keep a pragmatic normalized shape with punctuation
+// removed and an optional leading + preserved.
 func NormalizePhone(phone string) string {
 	trimmed := strings.TrimSpace(phone)
 	if trimmed == "" {
 		return ""
 	}
 
-	var b strings.Builder
+	var digits strings.Builder
+	sawLeadingPlus := false
 	for i, r := range trimmed {
 		switch {
 		case r >= '0' && r <= '9':
-			b.WriteRune(r)
-		case r == '+' && i == 0 && b.Len() == 0:
-			b.WriteRune(r)
+			digits.WriteRune(r)
+		case r == '+' && i == 0 && digits.Len() == 0:
+			sawLeadingPlus = true
 		case r == ' ' || r == '-' || r == '(' || r == ')':
 			continue
 		default:
@@ -56,7 +42,21 @@ func NormalizePhone(phone string) string {
 		}
 	}
 
-	return b.String()
+	normalizedDigits := digits.String()
+	if normalizedDigits == "" {
+		return ""
+	}
+
+	switch {
+	case len(normalizedDigits) == 10 && normalizedDigits[0] == '0':
+		return "+233" + normalizedDigits[1:]
+	case len(normalizedDigits) == 12 && strings.HasPrefix(normalizedDigits, "233"):
+		return "+" + normalizedDigits
+	case sawLeadingPlus:
+		return "+" + normalizedDigits
+	default:
+		return normalizedDigits
+	}
 }
 
 // ValidatePhone accepts pragmatic phone numbers rather than country-specific

@@ -8,7 +8,6 @@ import (
 	"testing"
 	"time"
 
-	"github.com/GordenArcher/lj-list-api/internal/config"
 	"github.com/GordenArcher/lj-list-api/internal/models"
 	"github.com/gin-gonic/gin"
 )
@@ -17,9 +16,14 @@ type stubConversationHandlerService struct {
 	conversation *models.ConversationWithDetails
 	created      bool
 	err          error
+	listUserID   string
+	listResult   []models.ConversationWithDetails
+	adminList    []models.ConversationWithDetails
+	adminCount   int
+	adminCalled  bool
 }
 
-func (s *stubConversationHandlerService) StartOrGet(ctx context.Context, customerID, adminID, initialMessage string) (*models.ConversationWithDetails, bool, error) {
+func (s *stubConversationHandlerService) StartOrGet(ctx context.Context, customerID, initialMessage string) (*models.ConversationWithDetails, bool, error) {
 	if s.err != nil {
 		return nil, false, s.err
 	}
@@ -27,23 +31,21 @@ func (s *stubConversationHandlerService) StartOrGet(ctx context.Context, custome
 }
 
 func (s *stubConversationHandlerService) GetUserConversations(ctx context.Context, userID string, offset, limit int) ([]models.ConversationWithDetails, error) {
-	return nil, nil
+	s.listUserID = userID
+	return s.listResult, nil
 }
 
 func (s *stubConversationHandlerService) GetUserConversationsCount(ctx context.Context, userID string) (int, error) {
 	return 0, nil
 }
 
-type stubConversationHandlerUserRepo struct {
-	user *models.User
-	err  error
+func (s *stubConversationHandlerService) GetAdminConversations(ctx context.Context, offset, limit int) ([]models.ConversationWithDetails, error) {
+	s.adminCalled = true
+	return s.adminList, nil
 }
 
-func (r *stubConversationHandlerUserRepo) FindByEmail(ctx context.Context, email string) (*models.User, error) {
-	if r.err != nil {
-		return nil, r.err
-	}
-	return r.user, nil
+func (s *stubConversationHandlerService) GetAdminConversationsCount(ctx context.Context) (int, error) {
+	return s.adminCount, nil
 }
 
 type stubConversationHandlerSMSService struct {
@@ -75,18 +77,7 @@ func TestConversationCreateReturnsExistingConversationWithoutSendingSMS(t *testi
 			},
 			created: false,
 		},
-		userRepo: &stubConversationHandlerUserRepo{
-			user: &models.User{
-				ID:          "admin-1",
-				Email:       "admin@example.com",
-				DisplayName: "Admin",
-				Role:        "admin",
-			},
-		},
 		smsService: smsService,
-		cfg: config.Config{
-			AdminEmail: "admin@example.com",
-		},
 	}
 
 	handler.Create(ctx)
@@ -120,18 +111,7 @@ func TestConversationCreateReturnsCreatedConversationAndSendsSMS(t *testing.T) {
 			},
 			created: true,
 		},
-		userRepo: &stubConversationHandlerUserRepo{
-			user: &models.User{
-				ID:          "admin-1",
-				Email:       "admin@example.com",
-				DisplayName: "Admin",
-				Role:        "admin",
-			},
-		},
 		smsService: smsService,
-		cfg: config.Config{
-			AdminEmail: "admin@example.com",
-		},
 	}
 
 	handler.Create(ctx)
@@ -141,5 +121,45 @@ func TestConversationCreateReturnsCreatedConversationAndSendsSMS(t *testing.T) {
 	}
 	if smsService.calls != 1 {
 		t.Fatalf("expected 1 SMS notification for new conversation, got %d", smsService.calls)
+	}
+}
+
+func TestConversationListForAdminUsesSharedInbox(t *testing.T) {
+	t.Parallel()
+
+	gin.SetMode(gin.TestMode)
+
+	recorder := httptest.NewRecorder()
+	ctx, _ := gin.CreateTestContext(recorder)
+	ctx.Request = httptest.NewRequest(http.MethodGet, "/api/v1/admin/conversations?page=1&limit=20", nil)
+	ctx.Set("user_id", "admin-1")
+	ctx.Set("user_role", "admin")
+
+	service := &stubConversationHandlerService{
+		adminList: []models.ConversationWithDetails{
+			{
+				ID: "conv-1",
+				OtherUser: models.ConversationUser{
+					ID:          "customer-1",
+					DisplayName: "Kwame Mensah",
+					Role:        "customer",
+				},
+			},
+		},
+		adminCount: 1,
+		listResult: []models.ConversationWithDetails{},
+	}
+
+	handler := &ConversationHandler{
+		conversationService: service,
+	}
+
+	handler.List(ctx)
+
+	if recorder.Code != http.StatusOK {
+		t.Fatalf("expected status 200, got %d", recorder.Code)
+	}
+	if !service.adminCalled {
+		t.Fatal("expected admin shared inbox lookup to be used")
 	}
 }

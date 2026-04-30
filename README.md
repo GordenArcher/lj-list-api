@@ -60,8 +60,8 @@ make run
 | `HUBTEL_CLIENT_SECRET` | Hubtel SMS client secret | required |
 | `HUBTEL_SMS_URL` | Hubtel SMS send endpoint | `https://smsc.hubtel.com/v1/messages/send` |
 | `HUBTEL_SENDER_ID` | SMS sender ID | `LJList` |
-| `ADMIN_EMAIL` | Email auto-promoted to admin on signup | required |
-| `ADMIN_NUMBER` | Admin phone number for SMS alerts | required for SMS notifications |
+| `ADMIN_PHONE_NUMBER` | Bootstrap phone number auto-promoted to admin on signup | defaults to `ADMIN_NUMBER` |
+| `ADMIN_NUMBER` | Legacy fallback SMS recipient if no admin accounts exist yet | optional |
 | `MIN_ORDER` | Minimum order amount in GHS | `549` |
 
 ## Response Envelope
@@ -118,6 +118,8 @@ Only origins in `CORS_ALLOWED_ORIGINS` are accepted. Default local frontend orig
 Public:
 
 - `POST /api/v1/auth/signup`
+- `POST /api/v1/auth/verify-otp`
+- `POST /api/v1/auth/resend-otp`
 - `POST /api/v1/auth/login`
 - `POST /api/v1/auth/refresh`
 - `GET /api/v1/products`

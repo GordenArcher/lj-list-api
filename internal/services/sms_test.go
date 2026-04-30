@@ -14,16 +14,31 @@ import (
 )
 
 type stubSMSUserRepo struct {
-	usersByID    map[string]*models.User
-	usersByEmail map[string]*models.User
+	usersByID          map[string]*models.User
+	usersByPhoneNumber map[string]*models.User
+	users              []models.User
 }
 
 func (r *stubSMSUserRepo) FindByID(ctx context.Context, id string) (*models.User, error) {
 	return r.usersByID[id], nil
 }
 
-func (r *stubSMSUserRepo) FindByEmail(ctx context.Context, email string) (*models.User, error) {
-	return r.usersByEmail[email], nil
+func (r *stubSMSUserRepo) FindByPhoneNumber(ctx context.Context, phoneNumber string) (*models.User, error) {
+	if user := r.usersByPhoneNumber[phoneNumber]; user != nil {
+		return user, nil
+	}
+	if strings.HasPrefix(phoneNumber, "+") {
+		return r.usersByPhoneNumber[strings.TrimPrefix(phoneNumber, "+")], nil
+	}
+	return r.usersByPhoneNumber["+"+phoneNumber], nil
+}
+
+func (r *stubSMSUserRepo) FindAll(ctx context.Context, role string, offset, limit int) ([]models.User, error) {
+	return r.users, nil
+}
+
+func (r *stubSMSUserRepo) CountAll(ctx context.Context, role string) (int, error) {
+	return len(r.users), nil
 }
 
 func TestSMSServiceSendBuildsHubtelQuickSendRequest(t *testing.T) {
@@ -181,22 +196,20 @@ func TestNotifyAdminNewApplicationBuildsReadableMessage(t *testing.T) {
 		HubtelClientSecret: "client-secret",
 		HubtelSMSURL:       "https://smsc.hubtel.com/v1/messages/send",
 		HubtelSenderID:     "SendCore",
-		AdminNumber:        "233500000001",
-		AdminEmail:         "admin@example.com",
 	}, &stubSMSUserRepo{
 		usersByID: map[string]*models.User{
 			"customer-1": {
 				ID:          "customer-1",
 				DisplayName: "Kwame Mensah",
-				Email:       "kwame@example.com",
+				PhoneNumber: "+233240000000",
 				Role:        "customer",
 			},
 		},
-		usersByEmail: map[string]*models.User{
-			"admin@example.com": {
+		users: []models.User{
+			{
 				ID:          "admin-1",
 				DisplayName: "Archer",
-				Email:       "admin@example.com",
+				PhoneNumber: "+233500000999",
 				Role:        "admin",
 			},
 		},
@@ -228,7 +241,7 @@ func TestNotifyAdminNewApplicationBuildsReadableMessage(t *testing.T) {
 		t.Fatal("timed out waiting for sms send")
 	}
 
-	if gotQuery.Get("to") != "233500000001" {
+	if gotQuery.Get("to") != "+233500000999" {
 		t.Fatalf("expected admin number destination, got %q", gotQuery.Get("to"))
 	}
 	content := gotQuery.Get("content")
@@ -255,7 +268,6 @@ func TestNotifyAdminNewMessageSkipsAdminSender(t *testing.T) {
 		HubtelClientSecret: "client-secret",
 		HubtelSMSURL:       "https://smsc.hubtel.com/v1/messages/send",
 		HubtelSenderID:     "SendCore",
-		AdminNumber:        "233500000001",
 	}, nil)
 	service.retryDelay = 0
 	service.httpClient = &http.Client{
@@ -286,22 +298,20 @@ func TestNotifyAdminNewMessageBuildsReadableMessage(t *testing.T) {
 		HubtelClientSecret: "client-secret",
 		HubtelSMSURL:       "https://smsc.hubtel.com/v1/messages/send",
 		HubtelSenderID:     "SendCore",
-		AdminNumber:        "233500000001",
-		AdminEmail:         "admin@example.com",
 	}, &stubSMSUserRepo{
 		usersByID: map[string]*models.User{
 			"customer-1": {
 				ID:          "customer-1",
 				DisplayName: "Kwame Mensah",
-				Email:       "kwame@example.com",
+				PhoneNumber: "+233240000000",
 				Role:        "customer",
 			},
 		},
-		usersByEmail: map[string]*models.User{
-			"admin@example.com": {
+		users: []models.User{
+			{
 				ID:          "admin-1",
 				DisplayName: "Archer",
-				Email:       "admin@example.com",
+				PhoneNumber: "+233500000999",
 				Role:        "admin",
 			},
 		},

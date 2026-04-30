@@ -36,53 +36,146 @@ func buildAPIDocumentation() models.APIResponse {
 			{
 				Method:      http.MethodPost,
 				Path:        "/api/v1/auth/signup",
-				Description: "Create a new customer account or admin account. If the email matches ADMIN_EMAIL env var, role is 'admin', otherwise 'customer'. The password is hashed with bcrypt before storage.",
+				Description: "Create a new inactive customer or admin account. phone_number, staff_number, institution, ghana_card_number, password, and display_name/name are required. The account remains inactive until the phone owner verifies the OTP sent by SMS. If the submitted phone_number matches ADMIN_PHONE_NUMBER, the created account gets role='admin'.",
 				Auth:        false,
 				Request: map[string]string{
-					"email":        "string (valid email required)",
-					"password":     "string (minimum 8 characters)",
-					"display_name": "string (2-100 characters)",
+					"phone_number":      "string (required, valid phone number)",
+					"staff_number":      "string (required, unique)",
+					"institution":       "string (required)",
+					"ghana_card_number": "string (required, unique)",
+					"password":          "string (minimum 8 characters)",
+					"display_name":      "string (required, 2-100 characters)",
+					"name":              "string (optional alias for display_name)",
 				},
-				ResponseSuccess: models.NewSuccessResponse("req-abc123", "Account created successfully", map[string]any{
-					"user": map[string]string{
+				ResponseSuccess: models.NewSuccessResponse("req-abc123", "Account created. Activation OTP sent.", map[string]any{
+					"user": map[string]any{
 						"id":           "550e8400-e29b-41d4-a716-446655440000",
-						"email":        "kwame@email.com",
-						"display_name": "Kwame",
-						"phone":        "",
+						"display_name": "Kwame Mensah",
+						"phone_number": "+233240000000",
 						"role":         "customer",
 					},
+					"verification": map[string]any{
+						"phone_number":       "+233240000000",
+						"expires_in_minutes": 10,
+					},
 				}),
+				ResponseError: models.NewErrorResponse("req-abc123", "VALIDATION_ERROR", "Validation failed", map[string][]string{
+					"phone_number": {"must be a valid phone number"},
+					"password":     {"must be at least 8 characters"},
+					"display_name": {"must be between 2 and 100 characters"},
+				}),
+				ErrorExamples: map[string]models.APIResponse{
+					"duplicate_phone_number": models.NewErrorResponse("req-abc123", "CONFLICT", "Phone number already registered", map[string][]string{
+						"phone_number": {"this phone number is already taken"},
+					}),
+					"duplicate_staff_number": models.NewErrorResponse("req-abc123", "CONFLICT", "Staff number already registered", map[string][]string{
+						"staff_number": {"this staff number is already taken"},
+					}),
+					"duplicate_ghana_card_number": models.NewErrorResponse("req-abc123", "CONFLICT", "Ghana Card number already registered", map[string][]string{
+						"ghana_card_number": {"this Ghana Card number is already taken"},
+					}),
+					"validation_error": models.NewErrorResponse("req-abc123", "VALIDATION_ERROR", "Validation failed", map[string][]string{
+						"phone_number": {"must be a valid phone number"},
+						"password":     {"must be at least 8 characters"},
+						"display_name": {"must be between 2 and 100 characters"},
+					}),
+				},
 				Example: `curl -X POST http://localhost:8080/api/v1/auth/signup \
   -H "Content-Type: application/json" \
   -d '{
-    "email":"kwame@email.com",
+    "phone_number":"+233240000000",
+    "staff_number":"GES-2024-0018",
+    "institution":"Ghana Education Service",
+    "ghana_card_number":"GHA-123456789-0",
     "password":"password123",
-    "display_name":"Kwame"
+    "display_name":"Kwame Mensah"
+  }'`,
+			},
+			{
+				Method:      http.MethodPost,
+				Path:        "/api/v1/auth/verify-otp",
+				Description: "Verify the OTP sent after signup, activate the account, and issue auth cookies.",
+				Auth:        false,
+				Request: map[string]string{
+					"phone_number": "string (required, valid phone number)",
+					"otp":          "string (required, 6-digit code)",
+				},
+				ResponseSuccess: models.NewSuccessResponse("req-abc123", "Account activated successfully", map[string]any{
+					"user": map[string]any{
+						"id":           "550e8400-e29b-41d4-a716-446655440000",
+						"display_name": "Kwame Mensah",
+						"phone_number": "+233240000000",
+						"role":         "customer",
+					},
+				}),
+				ResponseError: models.NewErrorResponse("req-abc123", "VALIDATION_ERROR", "Invalid or expired OTP", map[string][]string{
+					"otp": {"otp is invalid or expired"},
+				}),
+				Example: `curl -X POST http://localhost:8080/api/v1/auth/verify-otp \
+  -H "Content-Type: application/json" \
+  -c cookies.txt \
+  -d '{
+    "phone_number":"+233240000000",
+    "otp":"123456"
+  }'`,
+			},
+			{
+				Method:      http.MethodPost,
+				Path:        "/api/v1/auth/resend-otp",
+				Description: "Generate and send a fresh activation OTP for an inactive account.",
+				Auth:        false,
+				Request: map[string]string{
+					"phone_number": "string (required, valid phone number)",
+				},
+				ResponseSuccess: models.NewSuccessResponse("req-abc123", "Activation OTP sent", map[string]any{
+					"verification": map[string]any{
+						"phone_number":       "+233240000000",
+						"expires_in_minutes": 10,
+					},
+				}),
+				Example: `curl -X POST http://localhost:8080/api/v1/auth/resend-otp \
+  -H "Content-Type: application/json" \
+  -d '{
+    "phone_number":"+233240000000"
   }'`,
 			},
 			{
 				Method:      http.MethodPost,
 				Path:        "/api/v1/auth/login",
-				Description: "Authenticate with email and password. Returns an access_token cookie (15 min expiry) and refresh_token cookie (7 days expiry). Both are httpOnly for XSS protection.",
+				Description: "Authenticate an already activated account with phone_number and password. Returns an access_token cookie (15 min expiry) and refresh_token cookie (7 days expiry). Both are httpOnly for XSS protection.",
 				Auth:        false,
 				Request: map[string]string{
-					"email":    "string (valid email required)",
-					"password": "string",
+					"phone_number": "string (required, valid phone number)",
+					"password":     "string (required)",
 				},
 				ResponseSuccess: models.NewSuccessResponse("req-abc123", "Login successful", map[string]any{
-					"user": map[string]string{
+					"user": map[string]any{
 						"id":           "550e8400-e29b-41d4-a716-446655440000",
-						"email":        "kwame@email.com",
-						"display_name": "Kwame",
-						"phone":        "",
+						"display_name": "Kwame Mensah",
+						"phone_number": "+233240000000",
 						"role":         "customer",
 					},
 				}),
+				ResponseError: models.NewErrorResponse("req-abc123", "UNAUTHORIZED", "Invalid phone number or password", map[string][]string{
+					"auth": {"phone number or password is incorrect"},
+				}),
+				ErrorExamples: map[string]models.APIResponse{
+					"invalid_credentials": models.NewErrorResponse("req-abc123", "UNAUTHORIZED", "Invalid phone number or password", map[string][]string{
+						"auth": {"phone number or password is incorrect"},
+					}),
+					"account_not_activated": models.NewErrorResponse("req-abc123", "FORBIDDEN", "Account not activated", map[string][]string{
+						"auth": {"verify the activation OTP sent to your phone number"},
+					}),
+					"validation_error": models.NewErrorResponse("req-abc123", "VALIDATION_ERROR", "Validation failed", map[string][]string{
+						"phone_number": {"must be a valid phone number"},
+						"password":     {"required"},
+					}),
+				},
 				Example: `curl -X POST http://localhost:8080/api/v1/auth/login \
   -H "Content-Type: application/json" \
   -c cookies.txt \
   -d '{
-    "email":"kwame@email.com",
+    "phone_number":"+233240000000",
     "password":"password123"
   }'`,
 			},
@@ -115,17 +208,19 @@ func buildAPIDocumentation() models.APIResponse {
 			{
 				Method:      http.MethodGet,
 				Path:        "/api/v1/profile",
-				Description: "Get the authenticated user's profile. Returns the current display name, phone, role, and timestamps.",
+				Description: "Get the authenticated user's profile. Returns the editable account fields plus role and timestamps.",
 				Auth:        true,
 				Response: map[string]any{
 					"user": map[string]any{
-						"id":           "550e8400-e29b-41d4-a716-446655440000",
-						"email":        "kwame@email.com",
-						"display_name": "Kwame",
-						"phone":        "0240000000",
-						"role":         "customer",
-						"created_at":   "2026-04-29T12:00:00Z",
-						"updated_at":   "2026-04-29T12:00:00Z",
+						"id":                "550e8400-e29b-41d4-a716-446655440000",
+						"display_name":      "Kwame",
+						"phone_number":      "+233240000000",
+						"staff_number":      "GES-2024-0018",
+						"institution":       "Ghana Education Service",
+						"ghana_card_number": "GHA-123456789-0",
+						"role":              "customer",
+						"created_at":        "2026-04-29T12:00:00Z",
+						"updated_at":        "2026-04-29T12:00:00Z",
 					},
 				},
 				Example: `curl http://localhost:8080/api/v1/profile \
@@ -134,21 +229,27 @@ func buildAPIDocumentation() models.APIResponse {
 			{
 				Method:      http.MethodPatch,
 				Path:        "/api/v1/profile",
-				Description: "Update the authenticated user's profile. Only display_name and phone are editable here. Send an empty string for phone to clear it.",
+				Description: "Update the authenticated user's editable account fields. uuid, role, activation state, and OTP metadata are not client-editable.",
 				Auth:        true,
 				Request: map[string]string{
-					"display_name": "string (optional, 2-100 characters)",
-					"phone":        "string (optional, valid phone number or empty string to clear)",
+					"display_name":      "string (optional, 2-100 characters)",
+					"phone_number":      "string (optional, valid phone number)",
+					"staff_number":      "string (optional, unique, non-empty)",
+					"institution":       "string (optional, non-empty)",
+					"ghana_card_number": "string (optional, unique, non-empty)",
+					"password":          "string (optional, minimum 8 characters)",
 				},
 				Response: map[string]any{
 					"user": map[string]any{
-						"id":           "550e8400-e29b-41d4-a716-446655440000",
-						"email":        "kwame@email.com",
-						"display_name": "Kwame Mensah",
-						"phone":        "0240000000",
-						"role":         "customer",
-						"created_at":   "2026-04-29T12:00:00Z",
-						"updated_at":   "2026-04-29T12:30:00Z",
+						"id":                "550e8400-e29b-41d4-a716-446655440000",
+						"display_name":      "Kwame Mensah",
+						"phone_number":      "+233240000000",
+						"staff_number":      "GES-2024-0018",
+						"institution":       "Ghana Education Service",
+						"ghana_card_number": "GHA-123456789-0",
+						"role":              "customer",
+						"created_at":        "2026-04-29T12:00:00Z",
+						"updated_at":        "2026-04-29T12:30:00Z",
 					},
 				},
 				Example: `curl -X PATCH http://localhost:8080/api/v1/profile \
@@ -156,7 +257,11 @@ func buildAPIDocumentation() models.APIResponse {
   -b cookies.txt \
   -d '{
     "display_name":"Kwame Mensah",
-    "phone":"0240000000"
+    "phone_number":"+233240000000",
+    "staff_number":"GES-2024-0018",
+    "institution":"Ghana Education Service",
+    "ghana_card_number":"GHA-123456789-0",
+    "password":"password123"
   }'`,
 			},
 
@@ -220,16 +325,16 @@ func buildAPIDocumentation() models.APIResponse {
 			{
 				Method:      http.MethodPost,
 				Path:        "/api/v1/applications",
-				Description: "Submit a new grocery application. package_type is 'fixed' (predefined sets) or 'custom' (build your own cart). Cart total must exceed GHC 549 (MIN_ORDER config). Staff number, mandate number, institution, and Ghana card are required for government verification.",
+				Description: "Submit a new grocery application. package_type is 'fixed' (predefined sets) or 'custom' (build your own cart). Cart total must exceed GHC 549 (MIN_ORDER config). mandate_number is always required. staff_number, institution, and ghana_card_number are resolved from the request first, then from the authenticated user's profile if omitted.",
 				Auth:        true,
 				Request: map[string]any{
 					"package_type":      "string ('fixed' or 'custom')",
 					"package_name":      "string (required for fixed packages, e.g., 'Family Bundle')",
 					"cart_items":        "[]object (required for custom packages)",
-					"staff_number":      "string (government ID)",
-					"mandate_number":    "string (mandate ID)",
-					"institution":       "string (employer name)",
-					"ghana_card_number": "string",
+					"staff_number":      "string (optional if already on user profile)",
+					"mandate_number":    "string (required, mandate ID)",
+					"institution":       "string (optional if already on user profile)",
+					"ghana_card_number": "string (optional if already on user profile)",
 				},
 				Example: `curl -X POST http://localhost:8080/api/v1/applications \
   -H "Content-Type: application/json" \
@@ -307,7 +412,7 @@ func buildAPIDocumentation() models.APIResponse {
 			{
 				Method:      http.MethodPost,
 				Path:        "/api/v1/conversations",
-				Description: "Start a new conversation with the store admin. If a conversation already exists with this user, returns the existing conversation instead of creating a duplicate and does not insert the initial message again.",
+				Description: "Start a new conversation with the support inbox. The first message is routed through a bootstrap admin account, but any admin can later view and reply to the thread. If a conversation already exists with this user, returns the existing conversation instead of creating a duplicate and does not insert the initial message again.",
 				Auth:        true,
 				Request: map[string]string{
 					"message": "string (initial message, required)",
@@ -320,7 +425,7 @@ func buildAPIDocumentation() models.APIResponse {
 			{
 				Method:      http.MethodGet,
 				Path:        "/api/v1/conversations",
-				Description: "List conversations for the authenticated user (or admin) with other-user profile, last message, and unread count. Results are paginated.",
+				Description: "List conversations for the authenticated user. Admins receive the shared inbox view, which returns all customer threads with other-user profile, last message, and unread count. Results are paginated.",
 				Auth:        true,
 				Request: map[string]string{
 					"page":  "integer (optional, default 1)",
@@ -333,8 +438,7 @@ func buildAPIDocumentation() models.APIResponse {
 							"other_user": map[string]any{
 								"id":           "550e8400-e29b-41d4-a716-446655440999",
 								"display_name": "LJ List Admin",
-								"email":        "admin@ljlist.com",
-								"phone":        nil,
+								"phone_number": "+233241111111",
 								"role":         "admin",
 							},
 							"last_message": "Your application is under review.",
@@ -418,9 +522,8 @@ func buildAPIDocumentation() models.APIResponse {
 					"users": []map[string]any{
 						{
 							"id":           "550e8400-e29b-41d4-a716-446655440000",
-							"email":        "kwame@email.com",
 							"display_name": "Kwame",
-							"phone":        "0240000000",
+							"phone_number": "+233240000000",
 							"role":         "customer",
 							"created_at":   "2026-04-29T12:00:00Z",
 							"updated_at":   "2026-04-29T12:00:00Z",
@@ -441,20 +544,19 @@ func buildAPIDocumentation() models.APIResponse {
 			{
 				Method:      http.MethodPatch,
 				Path:        "/api/v1/admin/users/:id",
-				Description: "Update a user's profile fields or role (admin only). The configured admin account cannot be demoted away from admin.",
+				Description: "Update a user's profile fields or role (admin only). The bootstrap admin account cannot be demoted away from admin.",
 				Auth:        true,
 				AdminOnly:   true,
 				Request: map[string]string{
 					"display_name": "string (optional, 2-100 characters)",
-					"phone":        "string (optional, valid phone number or empty string to clear)",
+					"phone_number": "string (optional, valid phone number)",
 					"role":         "string (optional, 'customer' or 'admin')",
 				},
 				Response: map[string]any{
 					"user": map[string]any{
 						"id":           "550e8400-e29b-41d4-a716-446655440000",
-						"email":        "kwame@email.com",
 						"display_name": "Kwame Mensah",
-						"phone":        "0240000000",
+						"phone_number": "+233240000000",
 						"role":         "customer",
 						"created_at":   "2026-04-29T12:00:00Z",
 						"updated_at":   "2026-04-29T12:30:00Z",
@@ -465,7 +567,7 @@ func buildAPIDocumentation() models.APIResponse {
   -b cookies.txt \
   -d '{
     "display_name":"Kwame Mensah",
-    "phone":"0240000000",
+    "phone_number":"+233240000000",
     "role":"customer"
   }'`,
 			},
@@ -633,9 +735,8 @@ func buildAPIDocumentation() models.APIResponse {
 							"user_id": "550e8400-e29b-41d4-a716-446655440000",
 							"customer": map[string]any{
 								"id":           "550e8400-e29b-41d4-a716-446655440000",
-								"email":        "kwame@email.com",
 								"display_name": "Kwame",
-								"phone":        "0240000000",
+								"phone_number": "+233240000000",
 								"role":         "customer",
 							},
 							"package_type": "custom",
@@ -689,7 +790,7 @@ func buildAPIDocumentation() models.APIResponse {
 			{
 				Method:      http.MethodGet,
 				Path:        "/api/v1/admin/conversations",
-				Description: "List conversations for the authenticated admin. Returns other-user profile, last message, unread count, and pagination metadata.",
+				Description: "List all customer conversations in the shared admin inbox. Any authenticated admin can see the same thread list, with customer profile, last message, unread count, and pagination metadata.",
 				Auth:        true,
 				AdminOnly:   true,
 				Request: map[string]string{
@@ -703,8 +804,7 @@ func buildAPIDocumentation() models.APIResponse {
 							"other_user": map[string]any{
 								"id":           "550e8400-e29b-41d4-a716-446655440000",
 								"display_name": "Kwame",
-								"email":        "kwame@email.com",
-								"phone":        "0240000000",
+								"phone_number": "+233240000000",
 								"role":         "customer",
 							},
 							"last_message": "Your application is approved.",
@@ -741,9 +841,10 @@ func buildAPIDocumentation() models.APIResponse {
 		},
 		Notes: []string{
 			"Versioning: All endpoints are mounted under /api/v1",
-			"Authentication: Use httpOnly cookies (access_token, refresh_token) from login/signup, or Authorization: Bearer <token> header for API clients",
+			"Authentication: Use httpOnly cookies (access_token, refresh_token) from login/verify-otp, or Authorization: Bearer <token> header for API clients",
+			"Activation: Signup creates an inactive account and sends an OTP by SMS. Call POST /api/v1/auth/verify-otp before first login",
 			"Token refresh: Call POST /api/v1/auth/refresh with refresh_token cookie to rotate tokens",
-			"User roles: 'customer' for regular users, 'admin' for account matching ADMIN_EMAIL env var. Admin endpoints require role='admin'",
+			"User roles: 'customer' for regular users, 'admin' for the bootstrap admin created from ADMIN_PHONE_NUMBER. Additional admins can be promoted later. Admin endpoints require role='admin'",
 			"Minimum order: Custom packages require GHC 549 minimum. Fixed packages have predefined totals",
 			"Pagination: List endpoints accept page and limit query params. Responses include data.meta with total, page, limit, total_pages, has_next, and has_prev",
 			"Error responses: Field-level validation errors use field names as keys. Domain errors use keys like 'auth', 'server', 'cart'",

@@ -1,12 +1,14 @@
 package handlers
 
 import (
+	"context"
 	"net/http"
 	"strings"
 	"time"
 
 	"github.com/GordenArcher/lj-list-api/internal/apperrors"
 	"github.com/GordenArcher/lj-list-api/internal/config"
+	"github.com/GordenArcher/lj-list-api/internal/models"
 	"github.com/GordenArcher/lj-list-api/internal/services"
 	"github.com/GordenArcher/lj-list-api/internal/utils"
 	"github.com/gin-gonic/gin"
@@ -21,8 +23,16 @@ const (
 )
 
 type AuthHandler struct {
-	authService *services.AuthService
+	authService authService
 	cfg         config.Config
+}
+
+type authService interface {
+	Signup(ctx context.Context, input services.SignupInput) (*models.User, error)
+	VerifyOTP(ctx context.Context, phoneNumber, otp string) (*models.User, *utils.TokenPair, error)
+	ResendOTP(ctx context.Context, phoneNumber string) error
+	Login(ctx context.Context, phoneNumber, password string) (*models.User, *utils.TokenPair, error)
+	RefreshTokens(ctx context.Context, refreshToken string) (*utils.TokenPair, error)
 }
 
 func NewAuthHandler(authService *services.AuthService, cfg config.Config) *AuthHandler {
@@ -33,9 +43,13 @@ func NewAuthHandler(authService *services.AuthService, cfg config.Config) *AuthH
 }
 
 type signupRequest struct {
-	Email       string `json:"email"`
-	Password    string `json:"password"`
-	DisplayName string `json:"display_name"`
+	PhoneNumber     string `json:"phone_number"`
+	StaffNumber     string `json:"staff_number"`
+	Institution     string `json:"institution"`
+	GhanaCardNumber string `json:"ghana_card_number"`
+	Password        string `json:"password"`
+	DisplayName     string `json:"display_name"`
+	Name            string `json:"name"`
 }
 
 func (h *AuthHandler) Signup(c *gin.Context) {
@@ -48,14 +62,25 @@ func (h *AuthHandler) Signup(c *gin.Context) {
 	}
 
 	errs := make(map[string][]string)
+	displayName := resolveDisplayName(req.DisplayName, req.Name)
+	phoneNumber := utils.NormalizePhone(req.PhoneNumber)
 
-	if !utils.ValidateEmail(req.Email) {
-		errs["email"] = []string{"valid email is required"}
+	if !utils.ValidatePhone(phoneNumber) {
+		errs["phone_number"] = []string{"must be a valid phone number"}
+	}
+	if !utils.ValidateRequired(req.StaffNumber) {
+		errs["staff_number"] = []string{"required"}
+	}
+	if !utils.ValidateRequired(req.Institution) {
+		errs["institution"] = []string{"required"}
+	}
+	if !utils.ValidateRequired(req.GhanaCardNumber) {
+		errs["ghana_card_number"] = []string{"required"}
 	}
 	if !utils.ValidatePassword(req.Password) {
 		errs["password"] = []string{"must be at least 8 characters"}
 	}
-	if !utils.ValidateDisplayName(req.DisplayName) {
+	if !utils.ValidateDisplayName(displayName) {
 		errs["display_name"] = []string{"must be between 2 and 100 characters"}
 	}
 
@@ -64,28 +89,112 @@ func (h *AuthHandler) Signup(c *gin.Context) {
 		return
 	}
 
-	user, tokenPair, err := h.authService.Signup(c.Request.Context(), req.Email, req.Password, req.DisplayName)
+	user, err := h.authService.Signup(c.Request.Context(), services.SignupInput{
+		Password:        req.Password,
+		DisplayName:     displayName,
+		PhoneNumber:     phoneNumber,
+		StaffNumber:     strings.TrimSpace(req.StaffNumber),
+		Institution:     strings.TrimSpace(req.Institution),
+		GhanaCardNumber: strings.TrimSpace(req.GhanaCardNumber),
+	})
 	if err != nil {
 		utils.HandleError(c, err, "Something went wrong")
 		return
 	}
 
-	h.setAuthCookies(c, tokenPair)
-
-	utils.Success(c, http.StatusCreated, "Account created successfully", gin.H{
+	utils.Success(c, http.StatusAccepted, "Account created. Activation OTP sent.", gin.H{
 		"user": gin.H{
 			"id":           user.ID,
-			"email":        user.Email,
 			"display_name": user.DisplayName,
-			"phone":        user.Phone,
+			"phone_number": user.PhoneNumber,
 			"role":         user.Role,
+		},
+		"verification": gin.H{
+			"phone_number":       phoneNumber,
+			"expires_in_minutes": int(services.ActivationOTPExpiry / time.Minute),
+		},
+	})
+}
+
+type verifyOTPRequest struct {
+	PhoneNumber string `json:"phone_number"`
+	OTP         string `json:"otp"`
+}
+
+func (h *AuthHandler) VerifyOTP(c *gin.Context) {
+	var req verifyOTPRequest
+	if err := c.ShouldBindJSON(&req); err != nil {
+		utils.Error(c, http.StatusUnprocessableEntity, "INVALID_REQUEST", "Failed to parse request body", map[string][]string{
+			"body": {err.Error()},
+		})
+		return
+	}
+
+	errs := make(map[string][]string)
+	phoneNumber := utils.NormalizePhone(req.PhoneNumber)
+	otp := strings.TrimSpace(req.OTP)
+
+	if !utils.ValidatePhone(phoneNumber) {
+		errs["phone_number"] = []string{"must be a valid phone number"}
+	}
+	if otp == "" {
+		errs["otp"] = []string{"required"}
+	}
+	if len(errs) > 0 {
+		utils.Error(c, http.StatusUnprocessableEntity, "VALIDATION_ERROR", "Validation failed", errs)
+		return
+	}
+
+	user, tokenPair, err := h.authService.VerifyOTP(c.Request.Context(), phoneNumber, otp)
+	if err != nil {
+		utils.HandleError(c, err, "Failed to verify OTP")
+		return
+	}
+
+	h.setAuthCookies(c, tokenPair)
+
+	utils.Success(c, http.StatusOK, "Account activated successfully", gin.H{
+		"user": authUserPayload(user),
+	})
+}
+
+type resendOTPRequest struct {
+	PhoneNumber string `json:"phone_number"`
+}
+
+func (h *AuthHandler) ResendOTP(c *gin.Context) {
+	var req resendOTPRequest
+	if err := c.ShouldBindJSON(&req); err != nil {
+		utils.Error(c, http.StatusUnprocessableEntity, "INVALID_REQUEST", "Failed to parse request body", map[string][]string{
+			"body": {err.Error()},
+		})
+		return
+	}
+
+	phoneNumber := utils.NormalizePhone(req.PhoneNumber)
+	if !utils.ValidatePhone(phoneNumber) {
+		utils.Error(c, http.StatusUnprocessableEntity, "VALIDATION_ERROR", "Validation failed", map[string][]string{
+			"phone_number": {"must be a valid phone number"},
+		})
+		return
+	}
+
+	if err := h.authService.ResendOTP(c.Request.Context(), phoneNumber); err != nil {
+		utils.HandleError(c, err, "Failed to resend OTP")
+		return
+	}
+
+	utils.Success(c, http.StatusOK, "Activation OTP sent", gin.H{
+		"verification": gin.H{
+			"phone_number":       phoneNumber,
+			"expires_in_minutes": int(services.ActivationOTPExpiry / time.Minute),
 		},
 	})
 }
 
 type loginRequest struct {
-	Email    string `json:"email"`
-	Password string `json:"password"`
+	PhoneNumber string `json:"phone_number"`
+	Password    string `json:"password"`
 }
 
 func (h *AuthHandler) Login(c *gin.Context) {
@@ -97,14 +206,21 @@ func (h *AuthHandler) Login(c *gin.Context) {
 		return
 	}
 
-	if !utils.ValidateEmail(req.Email) {
-		utils.Error(c, http.StatusUnprocessableEntity, "VALIDATION_ERROR", "Valid email is required", map[string][]string{
-			"email": {"valid email is required"},
-		})
+	errs := make(map[string][]string)
+	phoneNumber := utils.NormalizePhone(req.PhoneNumber)
+
+	if !utils.ValidatePhone(phoneNumber) {
+		errs["phone_number"] = []string{"must be a valid phone number"}
+	}
+	if strings.TrimSpace(req.Password) == "" {
+		errs["password"] = []string{"required"}
+	}
+	if len(errs) > 0 {
+		utils.Error(c, http.StatusUnprocessableEntity, "VALIDATION_ERROR", "Validation failed", errs)
 		return
 	}
 
-	user, tokenPair, err := h.authService.Login(c.Request.Context(), req.Email, req.Password)
+	user, tokenPair, err := h.authService.Login(c.Request.Context(), phoneNumber, req.Password)
 	if err != nil {
 		utils.HandleError(c, err, "Failed to login")
 		return
@@ -113,14 +229,24 @@ func (h *AuthHandler) Login(c *gin.Context) {
 	h.setAuthCookies(c, tokenPair)
 
 	utils.Success(c, http.StatusOK, "Login successful", gin.H{
-		"user": gin.H{
-			"id":           user.ID,
-			"email":        user.Email,
-			"display_name": user.DisplayName,
-			"phone":        user.Phone,
-			"role":         user.Role,
-		},
+		"user": authUserPayload(user),
 	})
+}
+
+func resolveDisplayName(displayName, name string) string {
+	if trimmed := strings.TrimSpace(displayName); trimmed != "" {
+		return trimmed
+	}
+	return strings.TrimSpace(name)
+}
+
+func authUserPayload(user *models.User) gin.H {
+	return gin.H{
+		"id":           user.ID,
+		"display_name": user.DisplayName,
+		"phone_number": user.PhoneNumber,
+		"role":         user.Role,
+	}
 }
 
 func (h *AuthHandler) Logout(c *gin.Context) {

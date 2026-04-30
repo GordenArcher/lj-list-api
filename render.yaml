@@ -42,7 +42,7 @@ services:
         value: "https://smsc.hubtel.com/v1/messages/send"
       - key: HUBTEL_SENDER_ID
         value: "LJList"
-      - key: ADMIN_EMAIL
+      - key: ADMIN_PHONE_NUMBER
         sync: false
       - key: ADMIN_NUMBER
         sync: false

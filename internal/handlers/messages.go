@@ -42,30 +42,32 @@ func (h *MessageHandler) Send(c *gin.Context) {
 	}
 
 	userID := utils.GetUserIDFromContext(c)
+	userRole := utils.GetUserRoleFromContext(c)
 	conversationID := c.Param("id")
 
-	msg, err := h.messageService.Send(c.Request.Context(), conversationID, userID, req.Content)
+	msg, err := h.messageService.Send(c.Request.Context(), conversationID, userID, userRole, req.Content)
 	if err != nil {
 		utils.HandleError(c, err, "Failed to send message")
 		return
 	}
 
-	h.smsService.NotifyAdminNewMessage(c.Request.Context(), userID, utils.GetUserRoleFromContext(c), req.Content)
+	h.smsService.NotifyAdminNewMessage(c.Request.Context(), userID, userRole, req.Content)
 	utils.Success(c, http.StatusCreated, "Message sent", msg)
 }
 
 func (h *MessageHandler) List(c *gin.Context) {
 	userID := utils.GetUserIDFromContext(c)
+	userRole := utils.GetUserRoleFromContext(c)
 	conversationID := c.Param("id")
 	pag := utils.ExtractPaginationParams(c)
 
-	messages, err := h.messageService.GetMessages(c.Request.Context(), conversationID, userID, pag.Offset, pag.Limit)
+	messages, err := h.messageService.GetMessages(c.Request.Context(), conversationID, userID, userRole, pag.Offset, pag.Limit)
 	if err != nil {
 		utils.HandleError(c, err, "Failed to retrieve messages")
 		return
 	}
 
-	total, err := h.messageService.GetMessagesCount(c.Request.Context(), conversationID, userID)
+	total, err := h.messageService.GetMessagesCount(c.Request.Context(), conversationID, userID, userRole)
 	if err != nil {
 		utils.HandleError(c, err, "Failed to retrieve message count")
 		return

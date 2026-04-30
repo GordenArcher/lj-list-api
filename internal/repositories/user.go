@@ -3,6 +3,7 @@ package repositories
 import (
 	"context"
 	"fmt"
+	"time"
 
 	"github.com/GordenArcher/lj-list-api/internal/models"
 	"github.com/jackc/pgx/v5"
@@ -13,26 +14,96 @@ type UserRepository struct {
 	pool *pgxpool.Pool
 }
 
+type CreateUserInput struct {
+	PasswordHash    string
+	DisplayName     string
+	PhoneNumber     string
+	StaffNumber     string
+	Institution     string
+	GhanaCardNumber string
+	IsActive        bool
+	OTPHash         *string
+	OTPExpiresAt    *time.Time
+	Role            string
+}
+
+type UpdateUserInput struct {
+	DisplayName     string
+	PhoneNumber     string
+	StaffNumber     string
+	Institution     string
+	GhanaCardNumber string
+	PasswordHash    *string
+	Role            string
+}
+
 func NewUserRepository(pool *pgxpool.Pool) *UserRepository {
 	return &UserRepository{pool: pool}
 }
 
 // Create inserts a new user and returns the full record including the
-// server-generated UUID and timestamps. The caller provides email,
-// password_hash, and display_name. Role defaults to "customer" at the
-// database level; we override it here if the email matches the admin
-// email so the promotion happens atomically with user creation.
-func (r *UserRepository) Create(ctx context.Context, email, passwordHash, displayName, role string) (*models.User, error) {
+// server-generated UUID and timestamps. Role defaults to "customer" at the
+// database level; we override it here if the phone number matches the
+// configured admin phone so the promotion happens atomically with creation.
+func (r *UserRepository) Create(ctx context.Context, input CreateUserInput) (*models.User, error) {
 	query := `
-		INSERT INTO users (email, password_hash, display_name, role)
-		VALUES ($1, $2, $3, $4)
-		RETURNING id, email, password_hash, display_name, phone, role, created_at, updated_at
+		INSERT INTO users (
+			password_hash,
+			display_name,
+			phone_number,
+			staff_number,
+			institution,
+			ghana_card_number,
+			is_active,
+			otp_hash,
+			otp_expires_at,
+			role
+		)
+		VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10)
+		RETURNING
+			id,
+			password_hash,
+			display_name,
+			COALESCE(phone_number, ''),
+			COALESCE(staff_number, ''),
+			COALESCE(institution, ''),
+			COALESCE(ghana_card_number, ''),
+			is_active,
+			otp_hash,
+			otp_expires_at,
+			role,
+			created_at,
+			updated_at
 	`
 
 	var user models.User
-	err := r.pool.QueryRow(ctx, query, email, passwordHash, displayName, role).Scan(
-		&user.ID, &user.Email, &user.PasswordHash, &user.DisplayName,
-		&user.Phone, &user.Role, &user.CreatedAt, &user.UpdatedAt,
+	err := r.pool.QueryRow(
+		ctx,
+		query,
+		input.PasswordHash,
+		input.DisplayName,
+		input.PhoneNumber,
+		input.StaffNumber,
+		input.Institution,
+		input.GhanaCardNumber,
+		input.IsActive,
+		input.OTPHash,
+		input.OTPExpiresAt,
+		input.Role,
+	).Scan(
+		&user.ID,
+		&user.PasswordHash,
+		&user.DisplayName,
+		&user.PhoneNumber,
+		&user.StaffNumber,
+		&user.Institution,
+		&user.GhanaCardNumber,
+		&user.IsActive,
+		&user.OTPHash,
+		&user.OTPExpiresAt,
+		&user.Role,
+		&user.CreatedAt,
+		&user.UpdatedAt,
 	)
 	if err != nil {
 		return nil, fmt.Errorf("insert user: %w", err)
@@ -41,23 +112,46 @@ func (r *UserRepository) Create(ctx context.Context, email, passwordHash, displa
 	return &user, nil
 }
 
-// FindByEmail returns a user by email, or pgx.ErrNoRows if not found.
-// Used during login to retrieve the password hash and during signup to
-// check for duplicates.
-func (r *UserRepository) FindByEmail(ctx context.Context, email string) (*models.User, error) {
+// FindByPhoneNumber returns a user by phone_number, or pgx.ErrNoRows if not
+// found. Used during login, OTP verification, and admin lookup.
+func (r *UserRepository) FindByPhoneNumber(ctx context.Context, phoneNumber string) (*models.User, error) {
 	query := `
-		SELECT id, email, password_hash, display_name, phone, role, created_at, updated_at
+		SELECT
+			id,
+			password_hash,
+			display_name,
+			COALESCE(phone_number, ''),
+			COALESCE(staff_number, ''),
+			COALESCE(institution, ''),
+			COALESCE(ghana_card_number, ''),
+			is_active,
+			otp_hash,
+			otp_expires_at,
+			role,
+			created_at,
+			updated_at
 		FROM users
-		WHERE email = $1
+		WHERE phone_number = $1
 	`
 
 	var user models.User
-	err := r.pool.QueryRow(ctx, query, email).Scan(
-		&user.ID, &user.Email, &user.PasswordHash, &user.DisplayName,
-		&user.Phone, &user.Role, &user.CreatedAt, &user.UpdatedAt,
+	err := r.pool.QueryRow(ctx, query, phoneNumber).Scan(
+		&user.ID,
+		&user.PasswordHash,
+		&user.DisplayName,
+		&user.PhoneNumber,
+		&user.StaffNumber,
+		&user.Institution,
+		&user.GhanaCardNumber,
+		&user.IsActive,
+		&user.OTPHash,
+		&user.OTPExpiresAt,
+		&user.Role,
+		&user.CreatedAt,
+		&user.UpdatedAt,
 	)
 	if err != nil {
-		return nil, fmt.Errorf("find user by email: %w", err)
+		return nil, fmt.Errorf("find user by phone number: %w", err)
 	}
 
 	return &user, nil
@@ -67,15 +161,39 @@ func (r *UserRepository) FindByEmail(ctx context.Context, email string) (*models
 // profile when building conversation details.
 func (r *UserRepository) FindByID(ctx context.Context, id string) (*models.User, error) {
 	query := `
-		SELECT id, email, password_hash, display_name, phone, role, created_at, updated_at
+		SELECT
+			id,
+			password_hash,
+			display_name,
+			COALESCE(phone_number, ''),
+			COALESCE(staff_number, ''),
+			COALESCE(institution, ''),
+			COALESCE(ghana_card_number, ''),
+			is_active,
+			otp_hash,
+			otp_expires_at,
+			role,
+			created_at,
+			updated_at
 		FROM users
 		WHERE id = $1
 	`
 
 	var user models.User
 	err := r.pool.QueryRow(ctx, query, id).Scan(
-		&user.ID, &user.Email, &user.PasswordHash, &user.DisplayName,
-		&user.Phone, &user.Role, &user.CreatedAt, &user.UpdatedAt,
+		&user.ID,
+		&user.PasswordHash,
+		&user.DisplayName,
+		&user.PhoneNumber,
+		&user.StaffNumber,
+		&user.Institution,
+		&user.GhanaCardNumber,
+		&user.IsActive,
+		&user.OTPHash,
+		&user.OTPExpiresAt,
+		&user.Role,
+		&user.CreatedAt,
+		&user.UpdatedAt,
 	)
 	if err != nil {
 		return nil, fmt.Errorf("find user by id: %w", err)
@@ -84,16 +202,147 @@ func (r *UserRepository) FindByID(ctx context.Context, id string) (*models.User,
 	return &user, nil
 }
 
-// ExistsByEmail returns true if a user with the given email already exists.
-// This is a lighter query than FindByEmail, it only checks existence and
-// doesn't scan a full row. Used during signup validation.
-func (r *UserRepository) ExistsByEmail(ctx context.Context, email string) (bool, error) {
-	query := `SELECT EXISTS (SELECT 1 FROM users WHERE email = $1)`
+func (r *UserRepository) UpdateActivationOTP(ctx context.Context, userID string, otpHash string, otpExpiresAt time.Time) error {
+	query := `
+		UPDATE users
+		SET otp_hash = $2,
+			otp_expires_at = $3,
+			is_active = FALSE,
+			updated_at = NOW()
+		WHERE id = $1
+	`
+
+	if _, err := r.pool.Exec(ctx, query, userID, otpHash, otpExpiresAt); err != nil {
+		return fmt.Errorf("update activation otp: %w", err)
+	}
+
+	return nil
+}
+
+func (r *UserRepository) Activate(ctx context.Context, userID string) (*models.User, error) {
+	query := `
+		UPDATE users
+		SET is_active = TRUE,
+			otp_hash = NULL,
+			otp_expires_at = NULL,
+			updated_at = NOW()
+		WHERE id = $1
+		RETURNING
+			id,
+			password_hash,
+			display_name,
+			COALESCE(phone_number, ''),
+			COALESCE(staff_number, ''),
+			COALESCE(institution, ''),
+			COALESCE(ghana_card_number, ''),
+			is_active,
+			otp_hash,
+			otp_expires_at,
+			role,
+			created_at,
+			updated_at
+	`
+
+	var user models.User
+	err := r.pool.QueryRow(ctx, query, userID).Scan(
+		&user.ID,
+		&user.PasswordHash,
+		&user.DisplayName,
+		&user.PhoneNumber,
+		&user.StaffNumber,
+		&user.Institution,
+		&user.GhanaCardNumber,
+		&user.IsActive,
+		&user.OTPHash,
+		&user.OTPExpiresAt,
+		&user.Role,
+		&user.CreatedAt,
+		&user.UpdatedAt,
+	)
+	if err != nil {
+		return nil, fmt.Errorf("activate user: %w", err)
+	}
+
+	return &user, nil
+}
+
+func (r *UserRepository) DeleteByID(ctx context.Context, userID string) error {
+	query := `DELETE FROM users WHERE id = $1`
+
+	if _, err := r.pool.Exec(ctx, query, userID); err != nil {
+		return fmt.Errorf("delete user by id: %w", err)
+	}
+
+	return nil
+}
+
+func (r *UserRepository) ExistsByPhoneNumber(ctx context.Context, phoneNumber string) (bool, error) {
+	query := `SELECT EXISTS (SELECT 1 FROM users WHERE phone_number = $1)`
 
 	var exists bool
-	err := r.pool.QueryRow(ctx, query, email).Scan(&exists)
+	err := r.pool.QueryRow(ctx, query, phoneNumber).Scan(&exists)
 	if err != nil {
-		return false, fmt.Errorf("check user exists: %w", err)
+		return false, fmt.Errorf("check user exists by phone number: %w", err)
+	}
+
+	return exists, nil
+}
+
+func (r *UserRepository) ExistsByPhoneNumberExcludingID(ctx context.Context, phoneNumber, userID string) (bool, error) {
+	query := `SELECT EXISTS (SELECT 1 FROM users WHERE phone_number = $1 AND id <> $2)`
+
+	var exists bool
+	err := r.pool.QueryRow(ctx, query, phoneNumber, userID).Scan(&exists)
+	if err != nil {
+		return false, fmt.Errorf("check user exists by phone number excluding id: %w", err)
+	}
+
+	return exists, nil
+}
+
+func (r *UserRepository) ExistsByStaffNumber(ctx context.Context, staffNumber string) (bool, error) {
+	query := `SELECT EXISTS (SELECT 1 FROM users WHERE staff_number = $1)`
+
+	var exists bool
+	err := r.pool.QueryRow(ctx, query, staffNumber).Scan(&exists)
+	if err != nil {
+		return false, fmt.Errorf("check user exists by staff number: %w", err)
+	}
+
+	return exists, nil
+}
+
+func (r *UserRepository) ExistsByStaffNumberExcludingID(ctx context.Context, staffNumber, userID string) (bool, error) {
+	query := `SELECT EXISTS (SELECT 1 FROM users WHERE staff_number = $1 AND id <> $2)`
+
+	var exists bool
+	err := r.pool.QueryRow(ctx, query, staffNumber, userID).Scan(&exists)
+	if err != nil {
+		return false, fmt.Errorf("check user exists by staff number excluding id: %w", err)
+	}
+
+	return exists, nil
+}
+
+func (r *UserRepository) ExistsByGhanaCardNumber(ctx context.Context, ghanaCardNumber string) (bool, error) {
+	query := `SELECT EXISTS (SELECT 1 FROM users WHERE ghana_card_number = $1)`
+
+	var exists bool
+	err := r.pool.QueryRow(ctx, query, ghanaCardNumber).Scan(&exists)
+	if err != nil {
+		return false, fmt.Errorf("check user exists by ghana card number: %w", err)
+	}
+
+	return exists, nil
+}
+
+func (r *UserRepository) ExistsByGhanaCardNumberExcludingID(ctx context.Context, ghanaCardNumber, userID string) (bool, error) {
+	query := `SELECT EXISTS (SELECT 1 FROM users WHERE ghana_card_number = $1 AND id <> $2)`
+
+	var exists bool
+	err := r.pool.QueryRow(ctx, query, ghanaCardNumber, userID).Scan(&exists)
+	if err != nil {
+		return false, fmt.Errorf("check user exists by ghana card number excluding id: %w", err)
 	}
 
 	return exists, nil
@@ -107,7 +356,7 @@ func (r *UserRepository) FindAll(ctx context.Context, role string, offset, limit
 
 	if role == "" {
 		query := `
-			SELECT id, email, display_name, phone, role, created_at, updated_at
+			SELECT id, display_name, COALESCE(phone_number, ''), role, created_at, updated_at
 			FROM users
 			ORDER BY created_at DESC
 			OFFSET $1 LIMIT $2
@@ -115,7 +364,7 @@ func (r *UserRepository) FindAll(ctx context.Context, role string, offset, limit
 		rows, err = r.pool.Query(ctx, query, offset, limit)
 	} else {
 		query := `
-			SELECT id, email, display_name, phone, role, created_at, updated_at
+			SELECT id, display_name, COALESCE(phone_number, ''), role, created_at, updated_at
 			FROM users
 			WHERE role = $1
 			ORDER BY created_at DESC
@@ -134,9 +383,8 @@ func (r *UserRepository) FindAll(ctx context.Context, role string, offset, limit
 		var user models.User
 		if err := rows.Scan(
 			&user.ID,
-			&user.Email,
 			&user.DisplayName,
-			&user.Phone,
+			&user.PhoneNumber,
 			&user.Role,
 			&user.CreatedAt,
 			&user.UpdatedAt,
@@ -173,25 +421,41 @@ func (r *UserRepository) CountAll(ctx context.Context, role string) (int, error)
 }
 
 // Update overwrites the editable user fields and returns the fresh public row.
-// Passwords are intentionally excluded from this path; auth credentials are
-// managed separately from profile/admin edits.
-func (r *UserRepository) Update(ctx context.Context, id, displayName string, phone *string, role string) (*models.User, error) {
+// Activation metadata remains server-managed and is intentionally excluded.
+func (r *UserRepository) Update(ctx context.Context, id string, input UpdateUserInput) (*models.User, error) {
 	query := `
 		UPDATE users
 		SET display_name = $2,
-			phone = $3,
-			role = $4,
+			phone_number = $3,
+			staff_number = $4,
+			institution = $5,
+			ghana_card_number = $6,
+			password_hash = COALESCE($7, password_hash),
+			role = $8,
 			updated_at = NOW()
 		WHERE id = $1
-		RETURNING id, email, display_name, phone, role, created_at, updated_at
+		RETURNING id, display_name, COALESCE(phone_number, ''), COALESCE(staff_number, ''), COALESCE(institution, ''), COALESCE(ghana_card_number, ''), role, created_at, updated_at
 	`
 
 	var user models.User
-	err := r.pool.QueryRow(ctx, query, id, displayName, phone, role).Scan(
+	err := r.pool.QueryRow(
+		ctx,
+		query,
+		id,
+		input.DisplayName,
+		input.PhoneNumber,
+		input.StaffNumber,
+		input.Institution,
+		input.GhanaCardNumber,
+		input.PasswordHash,
+		input.Role,
+	).Scan(
 		&user.ID,
-		&user.Email,
 		&user.DisplayName,
-		&user.Phone,
+		&user.PhoneNumber,
+		&user.StaffNumber,
+		&user.Institution,
+		&user.GhanaCardNumber,
 		&user.Role,
 		&user.CreatedAt,
 		&user.UpdatedAt,

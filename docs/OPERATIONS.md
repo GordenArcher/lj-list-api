@@ -84,7 +84,8 @@ Standard metadata keys:
 - Set production `CORS_ALLOWED_ORIGINS`.
 - Set `COOKIE_SECURE=true` behind HTTPS.
 - Set `COOKIE_SAME_SITE=None` only when cross-site cookies are required and HTTPS is enabled.
-- Set `ADMIN_EMAIL` before first admin signup.
+- Set `ADMIN_PHONE_NUMBER` before first bootstrap admin signup.
+- Promote additional admins from the admin users UI or admin user update endpoint once the bootstrap admin is active.
 - Validate `DATABASE_URL` and run migrations on startup.
 
 ## Local Testing Checklist
@@ -93,7 +94,7 @@ Standard metadata keys:
   - `GET /`
   - `GET /api/v1/docs`
 - Verify auth flow:
-  - signup -> login -> refresh -> logout
+  - signup -> verify-otp -> login -> refresh -> logout
 - Verify throttling:
   - burst auth requests until `429` and confirm `X-RateLimit-Scope: auth`
   - burst API list requests and confirm `X-RateLimit-Scope: global`

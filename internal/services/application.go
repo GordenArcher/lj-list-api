@@ -10,23 +10,45 @@ import (
 	"github.com/GordenArcher/lj-list-api/internal/config"
 	"github.com/GordenArcher/lj-list-api/internal/models"
 	"github.com/GordenArcher/lj-list-api/internal/repositories"
+	"github.com/GordenArcher/lj-list-api/internal/utils"
 	"github.com/jackc/pgx/v5"
 )
 
 type ApplicationService struct {
-	applicationRepo *repositories.ApplicationRepository
-	productRepo     *repositories.ProductRepository
+	applicationRepo applicationRepository
+	productRepo     applicationProductRepository
+	userRepo        applicationUserRepository
 	cfg             config.Config
+}
+
+type applicationUserRepository interface {
+	FindByID(ctx context.Context, id string) (*models.User, error)
+}
+
+type applicationRepository interface {
+	Create(ctx context.Context, app *models.Application) (*models.Application, error)
+	FindByUserID(ctx context.Context, userID string, offset, limit int) ([]models.Application, error)
+	CountByUserID(ctx context.Context, userID string) (int, error)
+	FindByID(ctx context.Context, id string) (*models.Application, error)
+	FindAll(ctx context.Context, status string, offset, limit int) ([]models.Application, error)
+	CountAll(ctx context.Context, status string) (int, error)
+	UpdateStatus(ctx context.Context, id, status string) (*models.Application, error)
+}
+
+type applicationProductRepository interface {
+	FindByID(ctx context.Context, id string) (*models.Product, error)
 }
 
 func NewApplicationService(
 	applicationRepo *repositories.ApplicationRepository,
 	productRepo *repositories.ProductRepository,
+	userRepo *repositories.UserRepository,
 	cfg config.Config,
 ) *ApplicationService {
 	return &ApplicationService{
 		applicationRepo: applicationRepo,
 		productRepo:     productRepo,
+		userRepo:        userRepo,
 		cfg:             cfg,
 	}
 }
@@ -41,6 +63,36 @@ func (s *ApplicationService) Submit(ctx context.Context, userID, packageType, pa
 		return nil, apperrors.New(apperrors.KindValidation, "Validation failed", map[string][]string{
 			"package_type": {"must be 'fixed' or 'custom'"},
 		})
+	}
+
+	user, err := s.userRepo.FindByID(ctx, strings.TrimSpace(userID))
+	if err != nil {
+		if errors.Is(err, pgx.ErrNoRows) {
+			return nil, apperrors.New(apperrors.KindNotFound, "User not found", nil)
+		}
+		return nil, apperrors.Wrap(apperrors.KindInternal, "Failed to retrieve user profile", err)
+	}
+
+	resolvedMandateNumber := strings.TrimSpace(mandateNumber)
+	resolvedStaffNumber := resolveApplicationIdentityField(staffNumber, user.StaffNumber)
+	resolvedInstitution := resolveApplicationIdentityField(institution, user.Institution)
+	resolvedGhanaCardNumber := resolveApplicationIdentityField(ghanaCardNumber, user.GhanaCardNumber)
+
+	errs := make(map[string][]string)
+	if !utils.ValidateRequired(resolvedStaffNumber) {
+		errs["staff_number"] = []string{"required on the request or user profile"}
+	}
+	if !utils.ValidateRequired(resolvedMandateNumber) {
+		errs["mandate_number"] = []string{"required"}
+	}
+	if !utils.ValidateRequired(resolvedInstitution) {
+		errs["institution"] = []string{"required on the request or user profile"}
+	}
+	if !utils.ValidateRequired(resolvedGhanaCardNumber) {
+		errs["ghana_card_number"] = []string{"required on the request or user profile"}
+	}
+	if len(errs) > 0 {
+		return nil, apperrors.New(apperrors.KindValidation, "Validation failed", errs)
 	}
 
 	var items []models.CartItem
@@ -117,10 +169,10 @@ func (s *ApplicationService) Submit(ctx context.Context, userID, packageType, pa
 		CartItems:       items,
 		TotalAmount:     total,
 		MonthlyAmount:   monthly,
-		StaffNumber:     staffNumber,
-		MandateNumber:   mandateNumber,
-		Institution:     institution,
-		GhanaCardNumber: ghanaCardNumber,
+		StaffNumber:     resolvedStaffNumber,
+		MandateNumber:   resolvedMandateNumber,
+		Institution:     resolvedInstitution,
+		GhanaCardNumber: resolvedGhanaCardNumber,
 	}
 
 	created, err := s.applicationRepo.Create(ctx, app)
@@ -229,4 +281,11 @@ func (s *ApplicationService) getFixedPackagePrice(name string) int {
 	default:
 		return 549
 	}
+}
+
+func resolveApplicationIdentityField(requestValue, profileValue string) string {
+	if trimmed := strings.TrimSpace(requestValue); trimmed != "" {
+		return trimmed
+	}
+	return strings.TrimSpace(profileValue)
 }

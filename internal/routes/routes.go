@@ -40,11 +40,11 @@ func Register(router *gin.Engine, pool *pgxpool.Pool, cfg config.Config) {
 	messageRepo := repositories.NewMessageRepository(pool)
 
 	// Services
-	authService := services.NewAuthService(userRepo, cfg)
+	smsService := services.NewSMSService(cfg, userRepo)
+	authService := services.NewAuthService(userRepo, smsService, cfg)
 	userService := services.NewUserService(userRepo, cfg)
 	productService := services.NewProductService(productRepo, productImageRepo, cfg)
-	smsService := services.NewSMSService(cfg, userRepo)
-	applicationService := services.NewApplicationService(applicationRepo, productRepo, cfg)
+	applicationService := services.NewApplicationService(applicationRepo, productRepo, userRepo, cfg)
 	conversationService := services.NewConversationService(conversationRepo, userRepo)
 	messageService := services.NewMessageService(messageRepo, conversationRepo)
 
@@ -53,7 +53,7 @@ func Register(router *gin.Engine, pool *pgxpool.Pool, cfg config.Config) {
 	userHandler := handlers.NewUserHandler(userService)
 	productHandler := handlers.NewProductHandler(productService)
 	applicationHandler := handlers.NewApplicationHandler(applicationService, smsService)
-	conversationHandler := handlers.NewConversationHandler(conversationService, userRepo, smsService, cfg)
+	conversationHandler := handlers.NewConversationHandler(conversationService, smsService)
 	messageHandler := handlers.NewMessageHandler(messageService, smsService)
 	adminHandler := handlers.NewAdminHandler(applicationService)
 
@@ -66,6 +66,8 @@ func Register(router *gin.Engine, pool *pgxpool.Pool, cfg config.Config) {
 	authPublic := v1.Group("/auth")
 	authPublic.Use(middleware.AuthRateLimit(cfg))
 	authPublic.POST("/signup", authHandler.Signup)
+	authPublic.POST("/verify-otp", authHandler.VerifyOTP)
+	authPublic.POST("/resend-otp", authHandler.ResendOTP)
 	authPublic.POST("/login", authHandler.Login)
 	authPublic.POST("/refresh", authHandler.Refresh)
 

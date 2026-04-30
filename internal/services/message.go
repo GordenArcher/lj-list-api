@@ -11,8 +11,19 @@ import (
 )
 
 type MessageService struct {
-	messageRepo      *repositories.MessageRepository
-	conversationRepo *repositories.ConversationRepository
+	messageRepo      messageRepository
+	conversationRepo messageConversationRepository
+}
+
+type messageRepository interface {
+	Create(ctx context.Context, conversationID, senderID, content string) (*models.Message, error)
+	FindByConversationID(ctx context.Context, conversationID string, offset, limit int) ([]models.Message, error)
+	CountByConversationID(ctx context.Context, conversationID string) (int, error)
+	MarkAsRead(ctx context.Context, conversationID, readerID string) error
+}
+
+type messageConversationRepository interface {
+	FindByID(ctx context.Context, id string) (*models.Conversation, error)
 }
 
 func NewMessageService(
@@ -25,10 +36,10 @@ func NewMessageService(
 	}
 }
 
-// Send adds a message to a conversation. The caller must be a participant
-// in the conversation, we verify this before inserting.
-func (s *MessageService) Send(ctx context.Context, conversationID, senderID, content string) (*models.Message, error) {
-	if _, err := s.ensureParticipant(ctx, conversationID, senderID); err != nil {
+// Send adds a message to a conversation. Customers must be participants in the
+// thread. Admins can reply from any authenticated admin account.
+func (s *MessageService) Send(ctx context.Context, conversationID, senderID, senderRole, content string) (*models.Message, error) {
+	if _, err := s.ensureParticipant(ctx, conversationID, senderID, senderRole); err != nil {
 		return nil, err
 	}
 
@@ -40,10 +51,11 @@ func (s *MessageService) Send(ctx context.Context, conversationID, senderID, con
 	return msg, nil
 }
 
-// GetMessages returns paginated messages in a conversation. The caller must be
-// a participant. Messages are marked as read for the caller after retrieval.
-func (s *MessageService) GetMessages(ctx context.Context, conversationID, userID string, offset, limit int) ([]models.Message, error) {
-	if _, err := s.ensureParticipant(ctx, conversationID, userID); err != nil {
+// GetMessages returns paginated messages in a conversation. Customers must be
+// participants in the thread. Admins can open any conversation. Messages are
+// marked as read for the caller after retrieval.
+func (s *MessageService) GetMessages(ctx context.Context, conversationID, userID, userRole string, offset, limit int) ([]models.Message, error) {
+	if _, err := s.ensureParticipant(ctx, conversationID, userID, userRole); err != nil {
 		return nil, err
 	}
 
@@ -62,8 +74,8 @@ func (s *MessageService) GetMessages(ctx context.Context, conversationID, userID
 }
 
 // GetMessagesCount returns the total count of messages in a conversation.
-func (s *MessageService) GetMessagesCount(ctx context.Context, conversationID, userID string) (int, error) {
-	if _, err := s.ensureParticipant(ctx, conversationID, userID); err != nil {
+func (s *MessageService) GetMessagesCount(ctx context.Context, conversationID, userID, userRole string) (int, error) {
+	if _, err := s.ensureParticipant(ctx, conversationID, userID, userRole); err != nil {
 		return 0, err
 	}
 
@@ -75,13 +87,17 @@ func (s *MessageService) GetMessagesCount(ctx context.Context, conversationID, u
 	return count, nil
 }
 
-func (s *MessageService) ensureParticipant(ctx context.Context, conversationID, userID string) (*models.Conversation, error) {
+func (s *MessageService) ensureParticipant(ctx context.Context, conversationID, userID, userRole string) (*models.Conversation, error) {
 	conv, err := s.conversationRepo.FindByID(ctx, conversationID)
 	if err != nil {
 		if errors.Is(err, pgx.ErrNoRows) {
 			return nil, apperrors.New(apperrors.KindNotFound, "Conversation not found", nil)
 		}
 		return nil, apperrors.Wrap(apperrors.KindInternal, "Failed to retrieve conversation", err)
+	}
+
+	if userRole == "admin" {
+		return conv, nil
 	}
 
 	if conv.ParticipantOne != userID && conv.ParticipantTwo != userID {

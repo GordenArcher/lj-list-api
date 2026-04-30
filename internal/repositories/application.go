@@ -102,9 +102,8 @@ func (r *ApplicationRepository) FindAll(ctx context.Context, status string, offs
 				a.id,
 				a.user_id,
 				u.id,
-				u.email,
 				u.display_name,
-				u.phone,
+				COALESCE(u.phone_number, ''),
 				u.role,
 				a.package_type,
 				a.package_name,
@@ -130,9 +129,8 @@ func (r *ApplicationRepository) FindAll(ctx context.Context, status string, offs
 				a.id,
 				a.user_id,
 				u.id,
-				u.email,
 				u.display_name,
-				u.phone,
+				COALESCE(u.phone_number, ''),
 				u.role,
 				a.package_type,
 				a.package_name,
@@ -277,16 +275,14 @@ func scanApplicationsWithCustomer(rows pgx.Rows) ([]models.Application, error) {
 	for rows.Next() {
 		var app models.Application
 		var cartBytes []byte
-		var phone *string
 		app.Customer = &models.ApplicationCustomer{}
 
 		if err := rows.Scan(
 			&app.ID,
 			&app.UserID,
 			&app.Customer.ID,
-			&app.Customer.Email,
 			&app.Customer.DisplayName,
-			&phone,
+			&app.Customer.PhoneNumber,
 			&app.Customer.Role,
 			&app.PackageType,
 			&app.PackageName,
@@ -303,8 +299,6 @@ func scanApplicationsWithCustomer(rows pgx.Rows) ([]models.Application, error) {
 		); err != nil {
 			return nil, fmt.Errorf("scan admin application: %w", err)
 		}
-
-		app.Customer.Phone = phone
 
 		if err := json.Unmarshal(cartBytes, &app.CartItems); err != nil {
 			return nil, fmt.Errorf("unmarshal cart items: %w", err)

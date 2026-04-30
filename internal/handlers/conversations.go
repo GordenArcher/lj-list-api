@@ -2,28 +2,21 @@ package handlers
 
 import (
 	"context"
-	"errors"
 	"net/http"
 	"strings"
 
-	"github.com/GordenArcher/lj-list-api/internal/apperrors"
-	"github.com/GordenArcher/lj-list-api/internal/config"
 	"github.com/GordenArcher/lj-list-api/internal/models"
-	"github.com/GordenArcher/lj-list-api/internal/repositories"
 	"github.com/GordenArcher/lj-list-api/internal/services"
 	"github.com/GordenArcher/lj-list-api/internal/utils"
 	"github.com/gin-gonic/gin"
-	"github.com/jackc/pgx/v5"
 )
 
 type conversationService interface {
-	StartOrGet(ctx context.Context, customerID, adminID, initialMessage string) (*models.ConversationWithDetails, bool, error)
+	StartOrGet(ctx context.Context, customerID, initialMessage string) (*models.ConversationWithDetails, bool, error)
 	GetUserConversations(ctx context.Context, userID string, offset, limit int) ([]models.ConversationWithDetails, error)
 	GetUserConversationsCount(ctx context.Context, userID string) (int, error)
-}
-
-type conversationUserRepository interface {
-	FindByEmail(ctx context.Context, email string) (*models.User, error)
+	GetAdminConversations(ctx context.Context, offset, limit int) ([]models.ConversationWithDetails, error)
+	GetAdminConversationsCount(ctx context.Context) (int, error)
 }
 
 type conversationSMSService interface {
@@ -32,22 +25,16 @@ type conversationSMSService interface {
 
 type ConversationHandler struct {
 	conversationService conversationService
-	userRepo            conversationUserRepository
 	smsService          conversationSMSService
-	cfg                 config.Config
 }
 
 func NewConversationHandler(
 	conversationService *services.ConversationService,
-	userRepo *repositories.UserRepository,
 	smsService *services.SMSService,
-	cfg config.Config,
 ) *ConversationHandler {
 	return &ConversationHandler{
 		conversationService: conversationService,
-		userRepo:            userRepo,
 		smsService:          smsService,
-		cfg:                 cfg,
 	}
 }
 
@@ -73,33 +60,7 @@ func (h *ConversationHandler) Create(c *gin.Context) {
 
 	userID := utils.GetUserIDFromContext(c)
 
-	// Find the admin user, conversations always include the admin as the
-	// other participant. We look up by the configured admin email rather
-	// than hardcoding a UUID.
-	admin, err := h.userRepo.FindByEmail(c.Request.Context(), h.cfg.AdminEmail)
-	if err != nil {
-		if errors.Is(err, pgx.ErrNoRows) {
-			utils.HandleError(c, apperrors.New(
-				apperrors.KindNotFound,
-				"Admin account not found",
-				map[string][]string{"admin": {"configured admin account does not exist"}},
-			), "")
-			return
-		}
-		utils.HandleError(c, apperrors.Wrap(apperrors.KindInternal, "Failed to find admin user", err), "")
-		return
-	}
-
-	if admin.ID == userID {
-		utils.HandleError(c, apperrors.New(
-			apperrors.KindValidation,
-			"Admin cannot message themselves",
-			map[string][]string{"conversation": {"admin cannot start a conversation with themselves"}},
-		), "")
-		return
-	}
-
-	conv, created, err := h.conversationService.StartOrGet(c.Request.Context(), userID, admin.ID, req.Message)
+	conv, created, err := h.conversationService.StartOrGet(c.Request.Context(), userID, req.Message)
 	if err != nil {
 		utils.HandleError(c, err, "Failed to start conversation")
 		return
@@ -116,22 +77,43 @@ func (h *ConversationHandler) Create(c *gin.Context) {
 
 func (h *ConversationHandler) List(c *gin.Context) {
 	userID := utils.GetUserIDFromContext(c)
+	userRole := utils.GetUserRoleFromContext(c)
 
 	// Extract pagination parameters from query string.
 	// Default: page=1, limit=20. Max limit is 100 to prevent abuse.
 	pag := utils.ExtractPaginationParams(c)
 
-	conversations, err := h.conversationService.GetUserConversations(c.Request.Context(), userID, pag.Offset, pag.Limit)
-	if err != nil {
-		utils.HandleError(c, err, "Failed to retrieve conversations")
-		return
-	}
+	var (
+		conversations []models.ConversationWithDetails
+		total         int
+		err           error
+	)
 
-	// Get the total count for pagination metadata.
-	total, err := h.conversationService.GetUserConversationsCount(c.Request.Context(), userID)
-	if err != nil {
-		utils.HandleError(c, err, "Failed to retrieve conversation count")
-		return
+	if userRole == "admin" {
+		conversations, err = h.conversationService.GetAdminConversations(c.Request.Context(), pag.Offset, pag.Limit)
+		if err != nil {
+			utils.HandleError(c, err, "Failed to retrieve conversations")
+			return
+		}
+
+		total, err = h.conversationService.GetAdminConversationsCount(c.Request.Context())
+		if err != nil {
+			utils.HandleError(c, err, "Failed to retrieve conversation count")
+			return
+		}
+	} else {
+		conversations, err = h.conversationService.GetUserConversations(c.Request.Context(), userID, pag.Offset, pag.Limit)
+		if err != nil {
+			utils.HandleError(c, err, "Failed to retrieve conversations")
+			return
+		}
+
+		// Get the total count for pagination metadata.
+		total, err = h.conversationService.GetUserConversationsCount(c.Request.Context(), userID)
+		if err != nil {
+			utils.HandleError(c, err, "Failed to retrieve conversation count")
+			return
+		}
 	}
 
 	utils.Success(c, http.StatusOK, "Conversations retrieved", gin.H{

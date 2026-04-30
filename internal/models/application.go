@@ -21,11 +21,10 @@ type CartItem struct {
 // account internals while still giving the dashboard enough context to identify
 // who submitted the application.
 type ApplicationCustomer struct {
-	ID          string  `json:"id"`
-	Email       string  `json:"email"`
-	DisplayName string  `json:"display_name"`
-	Phone       *string `json:"phone,omitempty"`
-	Role        string  `json:"role"`
+	ID          string `json:"id"`
+	DisplayName string `json:"display_name"`
+	PhoneNumber string `json:"phone_number"`
+	Role        string `json:"role"`
 }
 
 // Application represents a customer's grocery order request. PackageType

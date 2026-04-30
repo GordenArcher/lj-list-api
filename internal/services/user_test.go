@@ -7,14 +7,20 @@ import (
 
 	"github.com/GordenArcher/lj-list-api/internal/config"
 	"github.com/GordenArcher/lj-list-api/internal/models"
+	"github.com/GordenArcher/lj-list-api/internal/repositories"
 )
 
 type stubUserServiceRepo struct {
-	currentUser       *models.User
-	updatedUser       *models.User
-	updateDisplayName string
-	updatePhone       *string
-	updateRole        string
+	currentUser                  *models.User
+	updatedUser                  *models.User
+	updateInput                  repositories.UpdateUserInput
+	updateRole                   string
+	existsByPhoneNumber          bool
+	existsByStaffNumber          bool
+	existsByGhanaCardNumber      bool
+	existsByPhoneNumberValue     string
+	existsByStaffNumberValue     string
+	existsByGhanaCardNumberValue string
 }
 
 func (r *stubUserServiceRepo) FindByID(ctx context.Context, id string) (*models.User, error) {
@@ -22,10 +28,6 @@ func (r *stubUserServiceRepo) FindByID(ctx context.Context, id string) (*models.
 		return nil, nil
 	}
 	userCopy := *r.currentUser
-	if r.currentUser.Phone != nil {
-		phoneCopy := *r.currentUser.Phone
-		userCopy.Phone = &phoneCopy
-	}
 	return &userCopy, nil
 }
 
@@ -37,94 +39,134 @@ func (r *stubUserServiceRepo) CountAll(ctx context.Context, role string) (int, e
 	return 0, nil
 }
 
-func (r *stubUserServiceRepo) Update(ctx context.Context, id, displayName string, phone *string, role string) (*models.User, error) {
-	r.updateDisplayName = displayName
-	r.updatePhone = cloneStringPtr(phone)
-	r.updateRole = role
+func (r *stubUserServiceRepo) Update(ctx context.Context, id string, input repositories.UpdateUserInput) (*models.User, error) {
+	r.updateInput = input
+	r.updateRole = input.Role
 
 	if r.updatedUser != nil {
 		userCopy := *r.updatedUser
-		if r.updatedUser.Phone != nil {
-			phoneCopy := *r.updatedUser.Phone
-			userCopy.Phone = &phoneCopy
-		}
 		return &userCopy, nil
 	}
 
 	return &models.User{
-		ID:          id,
-		Email:       "user@example.com",
-		DisplayName: displayName,
-		Phone:       cloneStringPtr(phone),
-		Role:        role,
-		CreatedAt:   time.Unix(1, 0).UTC(),
-		UpdatedAt:   time.Unix(2, 0).UTC(),
+		ID:              id,
+		DisplayName:     input.DisplayName,
+		PhoneNumber:     input.PhoneNumber,
+		StaffNumber:     input.StaffNumber,
+		Institution:     input.Institution,
+		GhanaCardNumber: input.GhanaCardNumber,
+		Role:            input.Role,
+		CreatedAt:       time.Unix(1, 0).UTC(),
+		UpdatedAt:       time.Unix(2, 0).UTC(),
 	}, nil
+}
+
+func (r *stubUserServiceRepo) ExistsByPhoneNumberExcludingID(ctx context.Context, phoneNumber, userID string) (bool, error) {
+	r.existsByPhoneNumberValue = phoneNumber
+	return r.existsByPhoneNumber, nil
+}
+
+func (r *stubUserServiceRepo) ExistsByStaffNumberExcludingID(ctx context.Context, staffNumber, userID string) (bool, error) {
+	r.existsByStaffNumberValue = staffNumber
+	return r.existsByStaffNumber, nil
+}
+
+func (r *stubUserServiceRepo) ExistsByGhanaCardNumberExcludingID(ctx context.Context, ghanaCardNumber, userID string) (bool, error) {
+	r.existsByGhanaCardNumberValue = ghanaCardNumber
+	return r.existsByGhanaCardNumber, nil
 }
 
 func TestUserServiceUpdateProfileNormalizesFields(t *testing.T) {
 	t.Parallel()
 
-	currentPhone := "0240000000"
 	repo := &stubUserServiceRepo{
 		currentUser: &models.User{
-			ID:          "user-1",
-			Email:       "kwame@example.com",
-			DisplayName: "Kwame",
-			Phone:       &currentPhone,
-			Role:        "customer",
+			ID:              "user-1",
+			PhoneNumber:     "+233240000111",
+			DisplayName:     "Kwame",
+			StaffNumber:     "GES-OLD-1",
+			Institution:     "GES",
+			GhanaCardNumber: "GHA-OLD-1",
+			Role:            "customer",
 		},
 	}
 
 	service := &UserService{userRepo: repo}
 	displayName := " Kwame Mensah "
-	phone := "+233 24-000-0000"
+	phoneNumber := "+233 24-000-0000"
+	staffNumber := " GES-2024-0018 "
+	institution := " Ghana Education Service "
+	ghanaCardNumber := " GHA-123456789-0 "
+	password := "password123"
 
 	user, err := service.UpdateProfile(context.Background(), "user-1", UpdateProfileInput{
-		DisplayName: &displayName,
-		Phone:       &phone,
+		DisplayName:     &displayName,
+		PhoneNumber:     &phoneNumber,
+		StaffNumber:     &staffNumber,
+		Institution:     &institution,
+		GhanaCardNumber: &ghanaCardNumber,
+		Password:        &password,
 	})
 	if err != nil {
 		t.Fatalf("UpdateProfile returned error: %v", err)
 	}
 
-	if repo.updateDisplayName != "Kwame Mensah" {
-		t.Fatalf("unexpected display name update: %q", repo.updateDisplayName)
+	if repo.updateInput.DisplayName != "Kwame Mensah" {
+		t.Fatalf("unexpected display name update: %q", repo.updateInput.DisplayName)
 	}
-	if repo.updatePhone == nil || *repo.updatePhone != "+233240000000" {
-		t.Fatalf("unexpected phone update: %#v", repo.updatePhone)
+	if repo.updateInput.PhoneNumber != "+233240000000" {
+		t.Fatalf("unexpected phone number update: %q", repo.updateInput.PhoneNumber)
+	}
+	if repo.updateInput.StaffNumber != "GES-2024-0018" {
+		t.Fatalf("unexpected staff number update: %q", repo.updateInput.StaffNumber)
+	}
+	if repo.updateInput.Institution != "Ghana Education Service" {
+		t.Fatalf("unexpected institution update: %q", repo.updateInput.Institution)
+	}
+	if repo.updateInput.GhanaCardNumber != "GHA-123456789-0" {
+		t.Fatalf("unexpected Ghana Card update: %q", repo.updateInput.GhanaCardNumber)
+	}
+	if repo.updateInput.PasswordHash == nil {
+		t.Fatal("expected password hash to be set")
+	}
+	if repo.existsByPhoneNumberValue != "+233240000000" {
+		t.Fatalf("expected duplicate check for phone number, got %q", repo.existsByPhoneNumberValue)
+	}
+	if repo.existsByStaffNumberValue != "GES-2024-0018" {
+		t.Fatalf("expected duplicate check for staff number, got %q", repo.existsByStaffNumberValue)
+	}
+	if repo.existsByGhanaCardNumberValue != "GHA-123456789-0" {
+		t.Fatalf("expected duplicate check for Ghana Card number, got %q", repo.existsByGhanaCardNumberValue)
 	}
 	if user == nil || user.DisplayName != "Kwame Mensah" {
 		t.Fatalf("unexpected user response: %#v", user)
 	}
 }
 
-func TestUserServiceUpdateProfileAllowsClearingPhone(t *testing.T) {
+func TestUserServiceUpdateProfileRejectsDuplicatePhoneNumber(t *testing.T) {
 	t.Parallel()
 
-	currentPhone := "0240000000"
 	repo := &stubUserServiceRepo{
 		currentUser: &models.User{
-			ID:          "user-1",
-			Email:       "kwame@example.com",
-			DisplayName: "Kwame",
-			Phone:       &currentPhone,
-			Role:        "customer",
+			ID:              "user-1",
+			PhoneNumber:     "+233240000111",
+			DisplayName:     "Kwame",
+			StaffNumber:     "GES-OLD-1",
+			Institution:     "GES",
+			GhanaCardNumber: "GHA-OLD-1",
+			Role:            "customer",
 		},
+		existsByPhoneNumber: true,
 	}
 
 	service := &UserService{userRepo: repo}
-	phone := "   "
+	phoneNumber := "+233 24-000-0000"
 
 	_, err := service.UpdateProfile(context.Background(), "user-1", UpdateProfileInput{
-		Phone: &phone,
+		PhoneNumber: &phoneNumber,
 	})
-	if err != nil {
-		t.Fatalf("UpdateProfile returned error: %v", err)
-	}
-
-	if repo.updatePhone != nil {
-		t.Fatalf("expected phone to be cleared, got %#v", repo.updatePhone)
+	if err == nil {
+		t.Fatal("expected duplicate phone validation error")
 	}
 }
 
@@ -134,7 +176,7 @@ func TestUserServiceAdminUpdateUserProtectsConfiguredAdminRole(t *testing.T) {
 	repo := &stubUserServiceRepo{
 		currentUser: &models.User{
 			ID:          "admin-1",
-			Email:       "admin@example.com",
+			PhoneNumber: "+233500000001",
 			DisplayName: "Admin",
 			Role:        "admin",
 		},
@@ -143,7 +185,7 @@ func TestUserServiceAdminUpdateUserProtectsConfiguredAdminRole(t *testing.T) {
 	service := &UserService{
 		userRepo: repo,
 		cfg: config.Config{
-			AdminEmail: "admin@example.com",
+			AdminPhoneNumber: "+233500000001",
 		},
 	}
 
@@ -156,6 +198,37 @@ func TestUserServiceAdminUpdateUserProtectsConfiguredAdminRole(t *testing.T) {
 	}
 	if repo.updateRole != "" {
 		t.Fatalf("expected update to be blocked, got role update %q", repo.updateRole)
+	}
+}
+
+func TestUserServiceUpdateProfileRejectsConfiguredAdminPhoneForNonAdminAccount(t *testing.T) {
+	t.Parallel()
+
+	repo := &stubUserServiceRepo{
+		currentUser: &models.User{
+			ID:              "user-1",
+			PhoneNumber:     "+233240000111",
+			DisplayName:     "Kwame",
+			StaffNumber:     "GES-OLD-1",
+			Institution:     "GES",
+			GhanaCardNumber: "GHA-OLD-1",
+			Role:            "customer",
+		},
+	}
+
+	service := &UserService{
+		userRepo: repo,
+		cfg: config.Config{
+			AdminPhoneNumber: "0540000001",
+		},
+	}
+
+	phoneNumber := "233540000001"
+	_, err := service.UpdateProfile(context.Background(), "user-1", UpdateProfileInput{
+		PhoneNumber: &phoneNumber,
+	})
+	if err == nil {
+		t.Fatal("expected validation error when non-admin claims configured admin phone")
 	}
 }
 

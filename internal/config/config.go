@@ -4,6 +4,7 @@ import (
 	"strings"
 
 	"github.com/GordenArcher/godenv"
+	"github.com/GordenArcher/lj-list-api/internal/utils"
 )
 
 // Config holds every setting the application needs. It's a concrete struct,
@@ -42,10 +43,10 @@ type Config struct {
 	CookieDomain   string
 	CookieSameSite string
 
-	// AdminEmail is the address that gets auto-promoted to admin on signup.
-	// Set this before deploying so the business owner can create an account
-	// and immediately access admin endpoints.
-	AdminEmail string
+	// AdminPhoneNumber is the phone number that gets auto-promoted to admin on
+	// signup. Set this before deploying so the business owner can create an
+	// account and immediately access admin endpoints.
+	AdminPhoneNumber string
 
 	// AdminNumber receives operational SMS notifications about new
 	// applications and customer messages.
@@ -91,9 +92,9 @@ func Load() Config {
 		CookieDomain:   godenv.Get("COOKIE_DOMAIN", ""),
 		CookieSameSite: normalizeSameSite(godenv.Get("COOKIE_SAME_SITE", "Lax"), "Lax"),
 
-		AdminEmail:  godenv.Get("ADMIN_EMAIL", ""),
-		AdminNumber: godenv.Get("ADMIN_NUMBER", ""),
-		MinOrder:    parsePositiveInt(godenv.Get("MIN_ORDER", "549"), 549),
+		AdminPhoneNumber: utils.NormalizePhone(godenv.Get("ADMIN_PHONE_NUMBER", godenv.Get("ADMIN_NUMBER", ""))),
+		AdminNumber:      godenv.Get("ADMIN_NUMBER", ""),
+		MinOrder:         parsePositiveInt(godenv.Get("MIN_ORDER", "549"), 549),
 	}
 }
 
