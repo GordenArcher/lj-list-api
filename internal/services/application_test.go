@@ -2,7 +2,6 @@ package services
 
 import (
 	"context"
-	"fmt"
 	"testing"
 	"time"
 
@@ -48,42 +47,9 @@ func (r *stubApplicationRepo) UpdateStatus(ctx context.Context, id, status strin
 	return nil, pgx.ErrNoRows
 }
 
-type stubApplicationProductRepo struct {
-	productByID       map[string]*models.Product
-	productByLegacyID map[int]*models.Product
-}
+type stubApplicationProductRepo struct{}
 
 func (r *stubApplicationProductRepo) FindByID(ctx context.Context, id string) (*models.Product, error) {
-	if r.productByID != nil {
-		if product, ok := r.productByID[id]; ok && product != nil {
-			copy := *product
-			return &copy, nil
-		}
-	}
-	return nil, pgx.ErrNoRows
-}
-
-func (r *stubApplicationProductRepo) FindByLegacyID(ctx context.Context, legacyID int) (*models.Product, error) {
-	if r.productByLegacyID != nil {
-		if product, ok := r.productByLegacyID[legacyID]; ok && product != nil {
-			copy := *product
-			return &copy, nil
-		}
-	}
-	return nil, pgx.ErrNoRows
-}
-
-type stubApplicationPackageRepo struct {
-	fixedByName map[string]*models.FixedPackage
-}
-
-func (r *stubApplicationPackageRepo) FindFixedByName(ctx context.Context, name string, includeInactive bool) (*models.FixedPackage, error) {
-	if r.fixedByName != nil {
-		if pkg, ok := r.fixedByName[name]; ok && pkg != nil {
-			copy := *pkg
-			return &copy, nil
-		}
-	}
 	return nil, pgx.ErrNoRows
 }
 
@@ -110,16 +76,6 @@ func TestApplicationServiceSubmitFallsBackToUserProfileIdentityFields(t *testing
 	service := &ApplicationService{
 		applicationRepo: appRepo,
 		productRepo:     &stubApplicationProductRepo{},
-		packageRepo: &stubApplicationPackageRepo{
-			fixedByName: map[string]*models.FixedPackage{
-				"Abusua Asomdwee":       &models.FixedPackage{ID: "abusua", Name: "Abusua Asomdwee", Price: "GH₵569"},
-				"Medaase Medo":          &models.FixedPackage{ID: "medaase", Name: "Medaase Medo", Price: "GH₵769"},
-				"You Do All":            &models.FixedPackage{ID: "youdo", Name: "You Do All", Price: "GH₵900"},
-				"Super Love":            &models.FixedPackage{ID: "superlove", Name: "Super Love", Price: "GH₵1,289"},
-				"Super Love Gye Wo Two": &models.FixedPackage{ID: "superlovegye", Name: "Super Love Gye Wo Two", Price: "GH₵1,980"},
-				"Love Package":          &models.FixedPackage{ID: "valentine", Name: "Love Package", Price: "GH₵1,260"},
-			},
-		},
 		userRepo: &stubApplicationUserRepo{
 			user: &models.User{
 				ID:              "user-1",
@@ -135,7 +91,7 @@ func TestApplicationServiceSubmitFallsBackToUserProfileIdentityFields(t *testing
 		context.Background(),
 		"user-1",
 		"fixed",
-		"Abusua Asomdwee",
+		"Abusua Package",
 		nil,
 		"",
 		"MND-001",
@@ -170,11 +126,6 @@ func TestApplicationServiceSubmitPrefersRequestIdentityFields(t *testing.T) {
 	service := &ApplicationService{
 		applicationRepo: appRepo,
 		productRepo:     &stubApplicationProductRepo{},
-		packageRepo: &stubApplicationPackageRepo{
-			fixedByName: map[string]*models.FixedPackage{
-				"Abusua Asomdwee": &models.FixedPackage{ID: "abusua", Name: "Abusua Asomdwee", Price: "GH₵569"},
-			},
-		},
 		userRepo: &stubApplicationUserRepo{
 			user: &models.User{
 				ID:              "user-1",
@@ -190,7 +141,7 @@ func TestApplicationServiceSubmitPrefersRequestIdentityFields(t *testing.T) {
 		context.Background(),
 		"user-1",
 		"fixed",
-		"Abusua Asomdwee",
+		"Abusua Package",
 		nil,
 		"NEW-STAFF",
 		"MND-001",
@@ -221,7 +172,6 @@ func TestApplicationServiceSubmitRejectsMissingIdentityFieldsWhenProfileAlsoMiss
 	service := &ApplicationService{
 		applicationRepo: &stubApplicationRepo{},
 		productRepo:     &stubApplicationProductRepo{},
-		packageRepo:     &stubApplicationPackageRepo{},
 		userRepo: &stubApplicationUserRepo{
 			user: &models.User{ID: "user-1"},
 		},
@@ -232,7 +182,7 @@ func TestApplicationServiceSubmitRejectsMissingIdentityFieldsWhenProfileAlsoMiss
 		context.Background(),
 		"user-1",
 		"fixed",
-		"Abusua Asomdwee",
+		"Abusua Package",
 		nil,
 		"",
 		"MND-001",
@@ -242,131 +192,4 @@ func TestApplicationServiceSubmitRejectsMissingIdentityFieldsWhenProfileAlsoMiss
 	if err == nil {
 		t.Fatal("expected validation error for missing identity fields")
 	}
-}
-
-func TestApplicationServiceSubmitUsesFixedPackagePricing(t *testing.T) {
-	t.Parallel()
-
-	cases := []struct {
-		name        string
-		packageName string
-		want        int
-	}{
-		{name: "abusua", packageName: "Abusua Asomdwee", want: 569},
-		{name: "medaase", packageName: "Medaase Medo", want: 769},
-		{name: "you do all", packageName: "You Do All", want: 900},
-		{name: "super love", packageName: "Super Love", want: 1289},
-		{name: "super love gye wo two", packageName: "Super Love Gye Wo Two", want: 1980},
-		{name: "love package", packageName: "Love Package", want: 1260},
-	}
-
-	for _, tc := range cases {
-		tc := tc
-		t.Run(tc.name, func(t *testing.T) {
-			t.Parallel()
-
-			appRepo := &stubApplicationRepo{}
-			service := &ApplicationService{
-				applicationRepo: appRepo,
-				productRepo:     &stubApplicationProductRepo{},
-				packageRepo: &stubApplicationPackageRepo{
-					fixedByName: map[string]*models.FixedPackage{
-						tc.packageName: &models.FixedPackage{ID: "pkg-1", Name: tc.packageName, Price: fmt.Sprintf("GH₵%d", tc.want)},
-					},
-				},
-				userRepo: &stubApplicationUserRepo{
-					user: &models.User{
-						ID:              "user-1",
-						StaffNumber:     "GES-2024-0018",
-						Institution:     "Ghana Education Service",
-						GhanaCardNumber: "GHA-123456789-0",
-					},
-				},
-				cfg: config.Config{MinOrder: 1},
-			}
-
-			app, err := service.Submit(
-				context.Background(),
-				"user-1",
-				"fixed",
-				tc.packageName,
-				nil,
-				"",
-				"MND-001",
-				"",
-				"",
-			)
-			if err != nil {
-				t.Fatalf("Submit returned error: %v", err)
-			}
-
-			if app == nil || app.TotalAmount != tc.want {
-				t.Fatalf("expected total amount %d, got %#v", tc.want, app)
-			}
-		})
-	}
-}
-
-func TestApplicationServiceSubmitResolvesLegacyNumericProductIDs(t *testing.T) {
-	t.Parallel()
-
-	appRepo := &stubApplicationRepo{}
-	productRepo := &stubApplicationProductRepo{
-		productByLegacyID: map[int]*models.Product{
-			101: &models.Product{
-				ID:       "prod-uuid",
-				LegacyID: intPtr(101),
-				Name:     "Royal Aroma 25kg (5*5)",
-				Price:    400,
-				Unit:     "bag",
-				Active:   true,
-			},
-		},
-	}
-	service := &ApplicationService{
-		applicationRepo: appRepo,
-		productRepo:     productRepo,
-		packageRepo:     &stubApplicationPackageRepo{},
-		userRepo: &stubApplicationUserRepo{
-			user: &models.User{
-				ID:              "user-1",
-				StaffNumber:     "GES-2024-0018",
-				Institution:     "Ghana Education Service",
-				GhanaCardNumber: "GHA-123456789-0",
-			},
-		},
-		cfg: config.Config{MinOrder: 549},
-	}
-
-	app, err := service.Submit(
-		context.Background(),
-		"user-1",
-		"custom",
-		"",
-		[]CartItemInput{{ProductID: "101", Quantity: 2}},
-		"",
-		"MND-001",
-		"",
-		"",
-	)
-	if err != nil {
-		t.Fatalf("Submit returned error: %v", err)
-	}
-
-	if app == nil || app.ID != "app-1" {
-		t.Fatalf("unexpected created application: %#v", app)
-	}
-	if appRepo.createInput == nil {
-		t.Fatal("expected application to be created")
-	}
-	if got := appRepo.createInput.CartItems; len(got) != 1 || got[0].ProductID != "prod-uuid" {
-		t.Fatalf("expected legacy product to resolve to uuid-backed row, got %#v", got)
-	}
-	if appRepo.createInput.TotalAmount != 800 {
-		t.Fatalf("expected total amount 800, got %d", appRepo.createInput.TotalAmount)
-	}
-}
-
-func intPtr(v int) *int {
-	return &v
 }

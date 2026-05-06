@@ -229,9 +229,9 @@ func TestNotifyAdminNewApplicationBuildsReadableMessage(t *testing.T) {
 
 	service.NotifyAdminNewApplication(context.Background(), "customer-1", &models.Application{
 		ID:            "app-123",
-		PackageName:   "Abusua Asomdwee",
-		TotalAmount:   569,
-		MonthlyAmount: 190,
+		PackageName:   "Abusua Package",
+		TotalAmount:   549,
+		MonthlyAmount: 183,
 		Institution:   "GRA",
 	})
 
@@ -251,7 +251,7 @@ func TestNotifyAdminNewApplicationBuildsReadableMessage(t *testing.T) {
 	if !strings.Contains(content, "Kwame Mensah") {
 		t.Fatalf("expected customer name in sms content, got %q", content)
 	}
-	if !strings.Contains(content, "Abusua Asomdwee") {
+	if !strings.Contains(content, "Abusua Package") {
 		t.Fatalf("expected package summary in sms content, got %q", content)
 	}
 	if strings.Contains(content, "app-123") {

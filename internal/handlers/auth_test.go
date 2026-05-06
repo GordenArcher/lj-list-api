@@ -16,25 +16,23 @@ import (
 )
 
 type stubAuthHandlerService struct {
-	signupInput   services.SignupInput
-	signupCalled  bool
-	verifyPhone   string
-	verifyOTP     string
-	verifyCalled  bool
-	resendPhone   string
-	resendCalled  bool
-	loginPhone    string
-	loginCalled   bool
-	signupUser    *models.User
-	verifyUser    *models.User
-	loginUser     *models.User
-	adminUser     *models.User
-	tokenPair     *utils.TokenPair
-	signupErr     error
-	verifyErr     error
-	resendErr     error
-	loginErr      error
-	adminLoginErr error
+	signupInput  services.SignupInput
+	signupCalled bool
+	verifyPhone  string
+	verifyOTP    string
+	verifyCalled bool
+	resendPhone  string
+	resendCalled bool
+	loginPhone   string
+	loginCalled  bool
+	signupUser   *models.User
+	verifyUser   *models.User
+	loginUser    *models.User
+	tokenPair    *utils.TokenPair
+	signupErr    error
+	verifyErr    error
+	resendErr    error
+	loginErr     error
 }
 
 func (s *stubAuthHandlerService) Signup(ctx context.Context, input services.SignupInput) (*models.User, error) {
@@ -67,18 +65,6 @@ func (s *stubAuthHandlerService) Login(ctx context.Context, phoneNumber, passwor
 	s.loginCalled = true
 	if s.loginErr != nil {
 		return nil, nil, s.loginErr
-	}
-	return s.loginUser, s.tokenPair, nil
-}
-
-func (s *stubAuthHandlerService) LoginAdmin(ctx context.Context, phoneNumber, password string) (*models.User, *utils.TokenPair, error) {
-	s.loginPhone = phoneNumber
-	s.loginCalled = true
-	if s.adminLoginErr != nil {
-		return nil, nil, s.adminLoginErr
-	}
-	if s.adminUser != nil {
-		return s.adminUser, s.tokenPair, nil
 	}
 	return s.loginUser, s.tokenPair, nil
 }
@@ -342,52 +328,5 @@ func TestLoginValidatesPhoneNumberAndPassword(t *testing.T) {
 	}
 	if response.Code != "VALIDATION_ERROR" {
 		t.Fatalf("expected VALIDATION_ERROR code, got %q", response.Code)
-	}
-}
-
-func TestAdminLoginUsesDedicatedEndpoint(t *testing.T) {
-	t.Parallel()
-
-	gin.SetMode(gin.TestMode)
-
-	service := &stubAuthHandlerService{
-		adminUser: &models.User{
-			ID:          "admin-1",
-			DisplayName: "Admin User",
-			PhoneNumber: "+233240000000",
-			Role:        "admin",
-		},
-		tokenPair: &utils.TokenPair{
-			AccessToken:  "access-token",
-			RefreshToken: "refresh-token",
-		},
-	}
-	handler := &AuthHandler{authService: service}
-
-	router := gin.New()
-	router.Use(func(c *gin.Context) {
-		c.Set("request_id", "req-test")
-		c.Next()
-	})
-	router.POST("/admin/auth/login", handler.AdminLogin)
-
-	req := httptest.NewRequest(http.MethodPost, "/admin/auth/login", bytes.NewBufferString(`{"phone_number":"+233 24-000-0000","password":"password123"}`))
-	req.Header.Set("Content-Type", "application/json")
-	recorder := httptest.NewRecorder()
-
-	router.ServeHTTP(recorder, req)
-
-	if recorder.Code != http.StatusOK {
-		t.Fatalf("expected status 200, got %d", recorder.Code)
-	}
-	if !service.loginCalled {
-		t.Fatal("expected admin login service to be called")
-	}
-	var response models.APIResponse
-	if err := json.Unmarshal(recorder.Body.Bytes(), &response); err != nil {
-		t.Fatalf("failed to decode response: %v", err)
-	}
-	if response.Message != "Admin login successful" {
-		t.Fatalf("unexpected message: %q", response.Message)
 	}
 }

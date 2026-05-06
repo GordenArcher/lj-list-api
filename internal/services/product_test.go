@@ -21,12 +21,9 @@ import (
 type stubProductRepo struct {
 	currentProduct     *models.Product
 	createdName        string
-	createdCategoryID  string
 	createdCategory    string
 	createdUnit        string
 	createdPrice       int
-	createdOldPrice    *int
-	createdTag         string
 	createdActive      bool
 	updatedProduct     *models.Product
 	primaryImageURL    string
@@ -37,44 +34,16 @@ type stubProductRepo struct {
 	setPrimaryImageErr error
 }
 
-func (r *stubProductRepo) FindAll(ctx context.Context, categoryID string, offset, limit int) ([]models.Product, error) {
+func (r *stubProductRepo) FindAll(ctx context.Context, category string, offset, limit int) ([]models.Product, error) {
 	return nil, nil
 }
 
-func (r *stubProductRepo) FindAllAdmin(ctx context.Context, categoryID string, offset, limit int) ([]models.Product, error) {
-	return nil, nil
-}
-
-func (r *stubProductRepo) CountAll(ctx context.Context, categoryID string) (int, error) {
+func (r *stubProductRepo) CountAll(ctx context.Context, category string) (int, error) {
 	return 0, nil
 }
 
-func (r *stubProductRepo) CountAllAdmin(ctx context.Context, categoryID string) (int, error) {
-	return 0, nil
-}
-
-func (r *stubProductRepo) FindAllCategories(ctx context.Context) ([]models.Category, error) {
+func (r *stubProductRepo) FindAllCategories(ctx context.Context) ([]string, error) {
 	return nil, nil
-}
-
-func (r *stubProductRepo) FindCategoryByID(ctx context.Context, id string) (*models.Category, error) {
-	return &models.Category{ID: id, Name: "Rice, Spaghetti & Grains"}, nil
-}
-
-func (r *stubProductRepo) FindCategoryByName(ctx context.Context, name string) (*models.Category, error) {
-	return &models.Category{ID: "cat-1", Name: name}, nil
-}
-
-func (r *stubProductRepo) FindByID(ctx context.Context, id string) (*models.Product, error) {
-	if r.findErr != nil {
-		return nil, r.findErr
-	}
-	if r.currentProduct == nil {
-		return nil, pgx.ErrNoRows
-	}
-
-	productCopy := *r.currentProduct
-	return &productCopy, nil
 }
 
 func (r *stubProductRepo) FindByIDForAdmin(ctx context.Context, id string) (*models.Product, error) {
@@ -89,38 +58,32 @@ func (r *stubProductRepo) FindByIDForAdmin(ctx context.Context, id string) (*mod
 	return &productCopy, nil
 }
 
-func (r *stubProductRepo) Create(ctx context.Context, name, categoryID, categoryName, unit string, price int, oldPrice *int, tag string, active bool) (*models.Product, error) {
+func (r *stubProductRepo) Create(ctx context.Context, name, category, unit string, price int, active bool) (*models.Product, error) {
 	if r.createErr != nil {
 		return nil, r.createErr
 	}
 
 	r.createdName = name
-	r.createdCategoryID = categoryID
-	r.createdCategory = categoryName
+	r.createdCategory = category
 	r.createdUnit = unit
 	r.createdPrice = price
-	r.createdOldPrice = oldPrice
-	r.createdTag = tag
 	r.createdActive = active
 
 	product := &models.Product{
-		ID:         "prod-1",
-		CategoryID: categoryID,
-		Name:       name,
-		Category:   categoryName,
-		Price:      price,
-		OldPrice:   oldPrice,
-		Tag:        tag,
-		ImageURL:   "",
-		Unit:       unit,
-		Active:     active,
+		ID:       "prod-1",
+		Name:     name,
+		Category: category,
+		Price:    price,
+		ImageURL: "",
+		Unit:     unit,
+		Active:   active,
 	}
 	r.currentProduct = product
 
 	return cloneProduct(product), nil
 }
 
-func (r *stubProductRepo) Update(ctx context.Context, id, name, categoryID, categoryName, unit string, price int, oldPrice *int, tag string, active bool) (*models.Product, error) {
+func (r *stubProductRepo) Update(ctx context.Context, id, name, category, unit string, price int, active bool) (*models.Product, error) {
 	if r.updateErr != nil {
 		return nil, r.updateErr
 	}
@@ -131,29 +94,18 @@ func (r *stubProductRepo) Update(ctx context.Context, id, name, categoryID, cate
 	}
 
 	product := &models.Product{
-		ID:         id,
-		CategoryID: categoryID,
-		Name:       name,
-		Category:   categoryName,
-		Price:      price,
-		OldPrice:   oldPrice,
-		Tag:        tag,
-		ImageURL:   imageURL,
-		Unit:       unit,
-		Active:     active,
+		ID:       id,
+		Name:     name,
+		Category: category,
+		Price:    price,
+		ImageURL: imageURL,
+		Unit:     unit,
+		Active:   active,
 	}
 	r.updatedProduct = cloneProduct(product)
 	r.currentProduct = cloneProduct(product)
 
 	return cloneProduct(product), nil
-}
-
-func (r *stubProductRepo) Delete(ctx context.Context, id string) error {
-	return nil
-}
-
-func (r *stubProductRepo) CountApplicationsByProductID(ctx context.Context, productID string) (int, error) {
-	return 0, nil
 }
 
 func (r *stubProductRepo) SetPrimaryImageURL(ctx context.Context, productID, imageURL string) error {
@@ -265,12 +217,10 @@ func TestProductServiceCreateProductTrimsMetadataAndDefaultsActive(t *testing.T)
 	}
 
 	product, err := service.CreateProduct(context.Background(), CreateProductInput{
-		Name:       " Royal Aroma Rice 5kg ",
-		CategoryID: "11111111-1111-1111-1111-111111111111",
-		Unit:       " bag ",
-		Price:      120,
-		OldPrice:   productIntPtr(150),
-		Tag:        " In Stock ",
+		Name:     " Royal Aroma Rice 5kg ",
+		Category: " Rice & Grains ",
+		Unit:     " bag ",
+		Price:    120,
 	})
 	if err != nil {
 		t.Fatalf("CreateProduct returned error: %v", err)
@@ -279,23 +229,14 @@ func TestProductServiceCreateProductTrimsMetadataAndDefaultsActive(t *testing.T)
 	if repo.createdName != "Royal Aroma Rice 5kg" {
 		t.Fatalf("unexpected created name: %q", repo.createdName)
 	}
-	if repo.createdCategoryID != "11111111-1111-1111-1111-111111111111" {
-		t.Fatalf("unexpected created category id: %q", repo.createdCategoryID)
-	}
-	if repo.createdCategory != "Rice, Spaghetti & Grains" {
-		t.Fatalf("unexpected created category name: %q", repo.createdCategory)
+	if repo.createdCategory != "Rice & Grains" {
+		t.Fatalf("unexpected created category: %q", repo.createdCategory)
 	}
 	if repo.createdUnit != "bag" {
 		t.Fatalf("unexpected created unit: %q", repo.createdUnit)
 	}
 	if repo.createdPrice != 120 {
 		t.Fatalf("unexpected created price: %d", repo.createdPrice)
-	}
-	if repo.createdOldPrice == nil || *repo.createdOldPrice != 150 {
-		t.Fatalf("unexpected created old price: %#v", repo.createdOldPrice)
-	}
-	if repo.createdTag != "In Stock" {
-		t.Fatalf("unexpected created tag: %q", repo.createdTag)
 	}
 	if !repo.createdActive {
 		t.Fatal("expected create to default active to true")
@@ -316,14 +257,13 @@ func TestProductServiceUpdateProductAttachesExistingImages(t *testing.T) {
 
 	repo := &stubProductRepo{
 		currentProduct: &models.Product{
-			ID:         "prod-1",
-			CategoryID: "11111111-1111-1111-1111-111111111111",
-			Name:       "Royal Aroma Rice 5kg",
-			Category:   "Rice, Spaghetti & Grains",
-			Price:      120,
-			ImageURL:   "https://res.cloudinary.com/demo-cloud/image/upload/v1/products/prod-1/rice.jpg",
-			Unit:       "bag",
-			Active:     true,
+			ID:       "prod-1",
+			Name:     "Royal Aroma Rice 5kg",
+			Category: "Rice & Grains",
+			Price:    120,
+			ImageURL: "https://res.cloudinary.com/demo-cloud/image/upload/v1/products/prod-1/rice.jpg",
+			Unit:     "bag",
+			Active:   true,
 		},
 	}
 	imageRepo := &stubProductImageRepo{
@@ -345,13 +285,10 @@ func TestProductServiceUpdateProductAttachesExistingImages(t *testing.T) {
 	}
 
 	newPrice := 125
-	newOldPrice := 160
 	active := false
 	product, err := service.UpdateProduct(context.Background(), "prod-1", UpdateProductInput{
-		Price:    &newPrice,
-		OldPrice: &newOldPrice,
-		Tag:      productStringPtr("Premium"),
-		Active:   &active,
+		Price:  &newPrice,
+		Active: &active,
 	})
 	if err != nil {
 		t.Fatalf("UpdateProduct returned error: %v", err)
@@ -362,12 +299,6 @@ func TestProductServiceUpdateProductAttachesExistingImages(t *testing.T) {
 	}
 	if repo.updatedProduct.Price != 125 {
 		t.Fatalf("expected updated price, got %d", repo.updatedProduct.Price)
-	}
-	if repo.updatedProduct.OldPrice == nil || *repo.updatedProduct.OldPrice != 160 {
-		t.Fatalf("expected updated old price, got %#v", repo.updatedProduct.OldPrice)
-	}
-	if repo.updatedProduct.Tag != "Premium" {
-		t.Fatalf("expected updated tag, got %q", repo.updatedProduct.Tag)
 	}
 	if repo.updatedProduct.Active {
 		t.Fatalf("expected updated active flag to be false, got %v", repo.updatedProduct.Active)
@@ -385,13 +316,12 @@ func TestProductServiceAddProductImagesUploadsGalleryAndSyncsPrimary(t *testing.
 
 	repo := &stubProductRepo{
 		currentProduct: &models.Product{
-			ID:         "prod-1",
-			CategoryID: "11111111-1111-1111-1111-111111111111",
-			Name:       "Royal Aroma Rice 5kg",
-			Category:   "Rice, Spaghetti & Grains",
-			Price:      120,
-			Unit:       "bag",
-			Active:     true,
+			ID:       "prod-1",
+			Name:     "Royal Aroma Rice 5kg",
+			Category: "Rice & Grains",
+			Price:    120,
+			Unit:     "bag",
+			Active:   true,
 		},
 	}
 	imageRepo := &stubProductImageRepo{
@@ -500,7 +430,7 @@ func TestProductServiceDeleteProductImageDeletesAssetAndPromotesNextImage(t *tes
 		currentProduct: &models.Product{
 			ID:       "prod-1",
 			Name:     "Royal Aroma Rice 5kg",
-			Category: "Rice, Spaghetti & Grains",
+			Category: "Rice & Grains",
 			Price:    120,
 			ImageURL: "https://res.cloudinary.com/demo-cloud/image/upload/v1714422000/products/prod-1/rice-front.jpg",
 			Unit:     "bag",
@@ -600,14 +530,6 @@ func cloneProduct(product *models.Product) *models.Product {
 	}
 
 	return &productCopy
-}
-
-func productIntPtr(v int) *int {
-	return &v
-}
-
-func productStringPtr(v string) *string {
-	return &v
 }
 
 func readMultipartRequest(r *http.Request) (map[string]string, string, string, error) {

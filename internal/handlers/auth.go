@@ -15,10 +15,11 @@ import (
 )
 
 const (
-	// refreshTokenCookiePath scopes the refresh cookie to the v1 API.
-	// This lets both customer and admin login endpoints issue the same session
-	// cookies while keeping the token httpOnly.
-	refreshTokenCookiePath = "/api/v1"
+	// refreshTokenCookiePath scopes the refresh cookie to auth endpoints only.
+	// Using the auth prefix instead of the exact refresh route keeps the cookie
+	// off the rest of the API while ensuring login/signup/logout/refresh can all
+	// reliably set or clear the same cookie path.
+	refreshTokenCookiePath = "/api/v1/auth"
 )
 
 type AuthHandler struct {
@@ -31,7 +32,6 @@ type authService interface {
 	VerifyOTP(ctx context.Context, phoneNumber, otp string) (*models.User, *utils.TokenPair, error)
 	ResendOTP(ctx context.Context, phoneNumber string) error
 	Login(ctx context.Context, phoneNumber, password string) (*models.User, *utils.TokenPair, error)
-	LoginAdmin(ctx context.Context, phoneNumber, password string) (*models.User, *utils.TokenPair, error)
 	RefreshTokens(ctx context.Context, refreshToken string) (*utils.TokenPair, error)
 }
 
@@ -229,42 +229,6 @@ func (h *AuthHandler) Login(c *gin.Context) {
 	h.setAuthCookies(c, tokenPair)
 
 	utils.Success(c, http.StatusOK, "Login successful", gin.H{
-		"user": authUserPayload(user),
-	})
-}
-
-func (h *AuthHandler) AdminLogin(c *gin.Context) {
-	var req loginRequest
-	if err := c.ShouldBindJSON(&req); err != nil {
-		utils.Error(c, http.StatusUnprocessableEntity, "INVALID_REQUEST", "Failed to parse request body", map[string][]string{
-			"body": {err.Error()},
-		})
-		return
-	}
-
-	errs := make(map[string][]string)
-	phoneNumber := utils.NormalizePhone(req.PhoneNumber)
-
-	if !utils.ValidatePhone(phoneNumber) {
-		errs["phone_number"] = []string{"must be a valid phone number"}
-	}
-	if strings.TrimSpace(req.Password) == "" {
-		errs["password"] = []string{"required"}
-	}
-	if len(errs) > 0 {
-		utils.Error(c, http.StatusUnprocessableEntity, "VALIDATION_ERROR", "Validation failed", errs)
-		return
-	}
-
-	user, tokenPair, err := h.authService.LoginAdmin(c.Request.Context(), phoneNumber, req.Password)
-	if err != nil {
-		utils.HandleError(c, err, "Failed to login")
-		return
-	}
-
-	h.setAuthCookies(c, tokenPair)
-
-	utils.Success(c, http.StatusOK, "Admin login successful", gin.H{
 		"user": authUserPayload(user),
 	})
 }

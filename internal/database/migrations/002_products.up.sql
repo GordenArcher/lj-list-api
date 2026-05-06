@@ -3,8 +3,6 @@ CREATE TABLE products (
     name VARCHAR(255) NOT NULL,
     category VARCHAR(100) NOT NULL,
     price INT NOT NULL CHECK (price > 0),
-    old_price INT,
-    tag VARCHAR(100) NOT NULL DEFAULT '',
     image_url TEXT NOT NULL DEFAULT '',
     unit VARCHAR(50) NOT NULL,
     active BOOLEAN NOT NULL DEFAULT true,

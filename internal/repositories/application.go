@@ -182,31 +182,6 @@ func (r *ApplicationRepository) CountAll(ctx context.Context, status string) (in
 	return count, nil
 }
 
-// CountByProductID returns how many applications reference the given
-// product in their cart_items snapshot. This is used to decide whether a
-// product can be hard-deleted or must be deactivated instead.
-func (r *ApplicationRepository) CountByProductID(ctx context.Context, productID string) (int, error) {
-	query := `
-		SELECT COUNT(*)
-		FROM applications
-		WHERE cart_items @> $1::jsonb
-	`
-
-	payload, err := json.Marshal([]map[string]string{
-		{"product_id": productID},
-	})
-	if err != nil {
-		return 0, fmt.Errorf("marshal product lookup payload: %w", err)
-	}
-
-	var count int
-	if err := r.pool.QueryRow(ctx, query, string(payload)).Scan(&count); err != nil {
-		return 0, fmt.Errorf("count applications by product id: %w", err)
-	}
-
-	return count, nil
-}
-
 // FindByID returns a single application by UUID. Returns pgx.ErrNoRows if
 // not found.
 func (r *ApplicationRepository) FindByID(ctx context.Context, id string) (*models.Application, error) {
