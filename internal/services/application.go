@@ -4,6 +4,7 @@ import (
 	"context"
 	"errors"
 	"fmt"
+	"strconv"
 	"strings"
 
 	"github.com/GordenArcher/lj-list-api/internal/apperrors"
@@ -17,6 +18,7 @@ import (
 type ApplicationService struct {
 	applicationRepo applicationRepository
 	productRepo     applicationProductRepository
+	packageRepo     applicationPackageRepository
 	userRepo        applicationUserRepository
 	cfg             config.Config
 }
@@ -37,17 +39,24 @@ type applicationRepository interface {
 
 type applicationProductRepository interface {
 	FindByID(ctx context.Context, id string) (*models.Product, error)
+	FindByLegacyID(ctx context.Context, legacyID int) (*models.Product, error)
+}
+
+type applicationPackageRepository interface {
+	FindFixedByName(ctx context.Context, name string, includeInactive bool) (*models.FixedPackage, error)
 }
 
 func NewApplicationService(
 	applicationRepo *repositories.ApplicationRepository,
 	productRepo *repositories.ProductRepository,
+	packageRepo *repositories.PackageRepository,
 	userRepo *repositories.UserRepository,
 	cfg config.Config,
 ) *ApplicationService {
 	return &ApplicationService{
 		applicationRepo: applicationRepo,
 		productRepo:     productRepo,
+		packageRepo:     packageRepo,
 		userRepo:        userRepo,
 		cfg:             cfg,
 	}
@@ -110,7 +119,7 @@ func (s *ApplicationService) Submit(ctx context.Context, userID, packageType, pa
 				})
 			}
 
-			product, err := s.productRepo.FindByID(ctx, ci.ProductID)
+			product, err := s.findCartProduct(ctx, ci.ProductID)
 			if err != nil {
 				if errors.Is(err, pgx.ErrNoRows) {
 					return nil, apperrors.New(apperrors.KindValidation, "Validation failed", map[string][]string{
@@ -145,9 +154,22 @@ func (s *ApplicationService) Submit(ctx context.Context, userID, packageType, pa
 			})
 		}
 
-		// Fixed packages have no cart items. The total is determined by
-		// the package name. We use the lower bound of the price range.
-		total = s.getFixedPackagePrice(packageName)
+		// Fixed packages have no cart items. The total is resolved from the
+		// active fixed_packages table so pricing stays in the database.
+		pkg, err := s.packageRepo.FindFixedByName(ctx, packageName, false)
+		if err != nil {
+			if errors.Is(err, pgx.ErrNoRows) {
+				return nil, apperrors.New(apperrors.KindValidation, "Validation failed", map[string][]string{
+					"package_name": {"unknown fixed package"},
+				})
+			}
+			return nil, apperrors.Wrap(apperrors.KindInternal, "Failed to resolve fixed package", err)
+		}
+
+		total, err = parseCurrencyAmount(pkg.Price)
+		if err != nil {
+			return nil, apperrors.Wrap(apperrors.KindInternal, "Failed to parse fixed package price", err)
+		}
 	}
 
 	if total < s.cfg.MinOrder {
@@ -181,6 +203,23 @@ func (s *ApplicationService) Submit(ctx context.Context, userID, packageType, pa
 	}
 
 	return created, nil
+}
+
+func (s *ApplicationService) findCartProduct(ctx context.Context, productID string) (*models.Product, error) {
+	trimmed := strings.TrimSpace(productID)
+	if trimmed == "" {
+		return nil, pgx.ErrNoRows
+	}
+
+	if legacyID, err := strconv.Atoi(trimmed); err == nil && strconv.Itoa(legacyID) == trimmed {
+		product, err := s.productRepo.FindByLegacyID(ctx, legacyID)
+		if err == nil {
+			return product, nil
+		}
+		return nil, err
+	}
+
+	return s.productRepo.FindByID(ctx, trimmed)
 }
 
 func (s *ApplicationService) GetByUserID(ctx context.Context, userID string, offset, limit int) ([]models.Application, error) {
@@ -261,31 +300,29 @@ type CartItemInput struct {
 	Quantity  int    `json:"quantity"`
 }
 
-// getFixedPackagePrice returns the lower bound of the price range for a
-// given fixed package name. This is intentionally not a database lookup —
-// package prices are a business rule, not catalog data.
-func (s *ApplicationService) getFixedPackagePrice(name string) int {
-	upper := strings.ToUpper(strings.TrimSpace(name))
-
-	switch {
-	case strings.HasPrefix(upper, "ABUSUA"):
-		return 549
-	case strings.HasPrefix(upper, "MEDAASE"):
-		return 769
-	case strings.HasPrefix(upper, "YOU"):
-		return 1099
-	case strings.HasPrefix(upper, "SUPER LOVE PREMIUM"):
-		return 1890
-	case strings.HasPrefix(upper, "SUPER LOVE"):
-		return 1299
-	default:
-		return 549
-	}
-}
-
 func resolveApplicationIdentityField(requestValue, profileValue string) string {
 	if trimmed := strings.TrimSpace(requestValue); trimmed != "" {
 		return trimmed
 	}
 	return strings.TrimSpace(profileValue)
+}
+
+func parseCurrencyAmount(value string) (int, error) {
+	var digits strings.Builder
+	for _, r := range value {
+		if r >= '0' && r <= '9' {
+			digits.WriteRune(r)
+		}
+	}
+
+	if digits.Len() == 0 {
+		return 0, fmt.Errorf("no numeric amount in %q", value)
+	}
+
+	amount, err := strconv.Atoi(digits.String())
+	if err != nil {
+		return 0, err
+	}
+
+	return amount, nil
 }

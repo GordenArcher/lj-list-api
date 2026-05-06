@@ -426,6 +426,78 @@ func TestAuthServiceLoginRejectsInactiveAccounts(t *testing.T) {
 	}
 }
 
+func TestAuthServiceLoginAdminRejectsCustomerAccounts(t *testing.T) {
+	t.Parallel()
+
+	hash, err := utils.HashPassword("password123")
+	if err != nil {
+		t.Fatalf("HashPassword returned error: %v", err)
+	}
+
+	repo := &stubAuthRepo{
+		findByPhoneNumberUser: &models.User{
+			ID:           "user-1",
+			PasswordHash: hash,
+			PhoneNumber:  "+233240000000",
+			Role:         "customer",
+			IsActive:     true,
+		},
+	}
+
+	service := &AuthService{
+		userRepo: repo,
+		cfg:      config.Config{JWTSecret: "secret"},
+	}
+
+	_, _, err = service.LoginAdmin(context.Background(), "+233 24-000-0000", "password123")
+	if err == nil {
+		t.Fatal("expected admin access error")
+	}
+
+	var appErr *apperrors.Error
+	if !errors.As(err, &appErr) {
+		t.Fatalf("expected apperrors.Error, got %T", err)
+	}
+	if appErr.Kind != apperrors.KindForbidden {
+		t.Fatalf("expected forbidden error, got %s", appErr.Kind)
+	}
+}
+
+func TestAuthServiceLoginAdminAllowsAdminAccounts(t *testing.T) {
+	t.Parallel()
+
+	hash, err := utils.HashPassword("password123")
+	if err != nil {
+		t.Fatalf("HashPassword returned error: %v", err)
+	}
+
+	repo := &stubAuthRepo{
+		findByPhoneNumberUser: &models.User{
+			ID:           "admin-1",
+			PasswordHash: hash,
+			PhoneNumber:  "+233240000000",
+			Role:         "admin",
+			IsActive:     true,
+		},
+	}
+
+	service := &AuthService{
+		userRepo: repo,
+		cfg:      config.Config{JWTSecret: "secret"},
+	}
+
+	user, tokenPair, err := service.LoginAdmin(context.Background(), "+233 24-000-0000", "password123")
+	if err != nil {
+		t.Fatalf("LoginAdmin returned error: %v", err)
+	}
+	if user == nil || user.Role != "admin" {
+		t.Fatalf("expected admin user, got %#v", user)
+	}
+	if tokenPair == nil || tokenPair.AccessToken == "" || tokenPair.RefreshToken == "" {
+		t.Fatalf("expected token pair, got %#v", tokenPair)
+	}
+}
+
 func cloneTimePtr(value *time.Time) *time.Time {
 	if value == nil {
 		return nil

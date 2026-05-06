@@ -242,6 +242,45 @@ func (s *AuthService) Login(ctx context.Context, phoneNumber, password string) (
 	return user, tokenPair, nil
 }
 
+// LoginAdmin authenticates a user and only allows admin accounts to receive
+// tokens. This keeps the normal login flow unchanged while giving the admin
+// frontend a clearer entry point and error message.
+func (s *AuthService) LoginAdmin(ctx context.Context, phoneNumber, password string) (*models.User, *utils.TokenPair, error) {
+	normalizedPhone := utils.NormalizePhone(phoneNumber)
+
+	user, err := s.userRepo.FindByPhoneNumber(ctx, normalizedPhone)
+	if err != nil {
+		if errors.Is(err, pgx.ErrNoRows) {
+			return nil, nil, invalidCredentialsError()
+		}
+		return nil, nil, apperrors.Wrap(apperrors.KindInternal, "Failed to authenticate admin", err)
+	}
+
+	if user.Role != "admin" {
+		return nil, nil, apperrors.New(apperrors.KindForbidden, "Admin access required", map[string][]string{
+			"auth": {"admin role required"},
+		})
+	}
+
+	if !user.IsActive {
+		return nil, nil, apperrors.New(apperrors.KindForbidden, "Account not activated", map[string][]string{
+			"auth":        {"verify the activation OTP sent to your phone number"},
+			"resend_code": {"true"},
+		})
+	}
+
+	if !utils.CheckPassword(password, user.PasswordHash) {
+		return nil, nil, invalidCredentialsError()
+	}
+
+	tokenPair, err := utils.GenerateTokenPair(user.ID, user.Role, s.cfg.JWTSecret)
+	if err != nil {
+		return nil, nil, apperrors.Wrap(apperrors.KindInternal, "Failed to generate auth tokens", err)
+	}
+
+	return user, tokenPair, nil
+}
+
 // RefreshTokens validates a refresh token and generates a new token pair.
 // It fetches the current user to ensure the role is up-to-date.
 func (s *AuthService) RefreshTokens(ctx context.Context, refreshToken string) (*utils.TokenPair, error) {
