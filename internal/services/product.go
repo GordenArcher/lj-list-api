@@ -23,16 +23,24 @@ import (
 	"github.com/GordenArcher/lj-list-api/internal/config"
 	"github.com/GordenArcher/lj-list-api/internal/models"
 	"github.com/GordenArcher/lj-list-api/internal/repositories"
+	"github.com/google/uuid"
 	"github.com/jackc/pgx/v5"
 )
 
 type productRepository interface {
-	FindAll(ctx context.Context, category string, offset, limit int) ([]models.Product, error)
-	CountAll(ctx context.Context, category string) (int, error)
-	FindAllCategories(ctx context.Context) ([]string, error)
+	FindAll(ctx context.Context, categoryID string, offset, limit int) ([]models.Product, error)
+	FindAllAdmin(ctx context.Context, categoryID string, offset, limit int) ([]models.Product, error)
+	CountAll(ctx context.Context, categoryID string) (int, error)
+	CountAllAdmin(ctx context.Context, categoryID string) (int, error)
+	FindAllCategories(ctx context.Context) ([]models.Category, error)
+	FindCategoryByID(ctx context.Context, id string) (*models.Category, error)
+	FindCategoryByName(ctx context.Context, name string) (*models.Category, error)
+	FindByID(ctx context.Context, id string) (*models.Product, error)
 	FindByIDForAdmin(ctx context.Context, id string) (*models.Product, error)
-	Create(ctx context.Context, name, category, unit string, price int, active bool) (*models.Product, error)
-	Update(ctx context.Context, id, name, category, unit string, price int, active bool) (*models.Product, error)
+	Create(ctx context.Context, name, categoryID, categoryName, unit string, price int, oldPrice *int, tag string, active bool) (*models.Product, error)
+	Update(ctx context.Context, id, name, categoryID, categoryName, unit string, price int, oldPrice *int, tag string, active bool) (*models.Product, error)
+	Delete(ctx context.Context, id string) error
+	CountApplicationsByProductID(ctx context.Context, productID string) (int, error)
 	SetPrimaryImageURL(ctx context.Context, productID, imageURL string) error
 }
 
@@ -53,19 +61,29 @@ type ProductService struct {
 }
 
 type CreateProductInput struct {
-	Name     string
-	Category string
-	Unit     string
-	Price    int
-	Active   *bool
+	Name       string
+	CategoryID string
+	Unit       string
+	Price      int
+	OldPrice   *int
+	Tag        string
+	Active     *bool
 }
 
 type UpdateProductInput struct {
-	Name     *string
-	Category *string
-	Unit     *string
-	Price    *int
-	Active   *bool
+	Name       *string
+	CategoryID *string
+	Unit       *string
+	Price      *int
+	OldPrice   *int
+	Tag        *string
+	Active     *bool
+}
+
+type DeleteProductResult struct {
+	Product     *models.Product
+	Message     string
+	SoftDeleted bool
 }
 
 type ProductImageUploadInput struct {
@@ -106,7 +124,30 @@ func NewProductService(
 // image_url remains the primary image for backward compatibility, while the
 // images array exposes the full gallery for newer clients.
 func (s *ProductService) GetProducts(ctx context.Context, category string, offset, limit int) ([]models.Product, error) {
-	products, err := s.productRepo.FindAll(ctx, category, offset, limit)
+	categoryID, err := s.resolveCategoryFilter(ctx, category)
+	if err != nil {
+		return nil, err
+	}
+
+	products, err := s.productRepo.FindAll(ctx, categoryID, offset, limit)
+	if err != nil {
+		return nil, apperrors.Wrap(apperrors.KindInternal, "Failed to retrieve products", err)
+	}
+
+	if err := s.attachImages(ctx, products); err != nil {
+		return nil, err
+	}
+
+	return products, nil
+}
+
+func (s *ProductService) GetAdminProducts(ctx context.Context, category string, offset, limit int) ([]models.Product, error) {
+	categoryID, err := s.resolveCategoryFilter(ctx, category)
+	if err != nil {
+		return nil, err
+	}
+
+	products, err := s.productRepo.FindAllAdmin(ctx, categoryID, offset, limit)
 	if err != nil {
 		return nil, apperrors.Wrap(apperrors.KindInternal, "Failed to retrieve products", err)
 	}
@@ -120,14 +161,32 @@ func (s *ProductService) GetProducts(ctx context.Context, category string, offse
 
 // GetProductsCount returns the total count of active products, optionally filtered by category.
 func (s *ProductService) GetProductsCount(ctx context.Context, category string) (int, error) {
-	count, err := s.productRepo.CountAll(ctx, category)
+	categoryID, err := s.resolveCategoryFilter(ctx, category)
+	if err != nil {
+		return 0, err
+	}
+
+	count, err := s.productRepo.CountAll(ctx, categoryID)
 	if err != nil {
 		return 0, apperrors.Wrap(apperrors.KindInternal, "Failed to retrieve product count", err)
 	}
 	return count, nil
 }
 
-func (s *ProductService) GetCategories(ctx context.Context) ([]string, error) {
+func (s *ProductService) GetAdminProductsCount(ctx context.Context, category string) (int, error) {
+	categoryID, err := s.resolveCategoryFilter(ctx, category)
+	if err != nil {
+		return 0, err
+	}
+
+	count, err := s.productRepo.CountAllAdmin(ctx, categoryID)
+	if err != nil {
+		return 0, apperrors.Wrap(apperrors.KindInternal, "Failed to retrieve product count", err)
+	}
+	return count, nil
+}
+
+func (s *ProductService) GetCategories(ctx context.Context) ([]models.Category, error) {
 	categories, err := s.productRepo.FindAllCategories(ctx)
 	if err != nil {
 		return nil, apperrors.Wrap(apperrors.KindInternal, "Failed to retrieve categories", err)
@@ -135,11 +194,100 @@ func (s *ProductService) GetCategories(ctx context.Context) ([]string, error) {
 	return categories, nil
 }
 
-// CreateProduct creates product metadata only. Images are managed through the
-// dedicated product image endpoints so product creation is no longer limited
-// to a single upload.
+func (s *ProductService) GetProduct(ctx context.Context, id string) (*models.Product, error) {
+	product, err := s.productRepo.FindByID(ctx, strings.TrimSpace(id))
+	if err != nil {
+		if errors.Is(err, pgx.ErrNoRows) {
+			return nil, apperrors.New(apperrors.KindNotFound, "Product not found", nil)
+		}
+		return nil, apperrors.Wrap(apperrors.KindInternal, "Failed to retrieve product", err)
+	}
+
+	if err := s.attachImagesToProduct(ctx, product); err != nil {
+		return nil, err
+	}
+
+	return product, nil
+}
+
+func (s *ProductService) GetProductAdmin(ctx context.Context, id string) (*models.Product, error) {
+	product, err := s.productRepo.FindByIDForAdmin(ctx, strings.TrimSpace(id))
+	if err != nil {
+		if errors.Is(err, pgx.ErrNoRows) {
+			return nil, apperrors.New(apperrors.KindNotFound, "Product not found", nil)
+		}
+		return nil, apperrors.Wrap(apperrors.KindInternal, "Failed to retrieve product", err)
+	}
+
+	if err := s.attachImagesToProduct(ctx, product); err != nil {
+		return nil, err
+	}
+
+	return product, nil
+}
+
+func (s *ProductService) resolveCategory(ctx context.Context, categoryInput string) (*models.Category, error) {
+	trimmed := strings.TrimSpace(categoryInput)
+	if trimmed == "" {
+		return nil, apperrors.New(apperrors.KindValidation, "Validation failed", map[string][]string{
+			"category_id": {"required"},
+		})
+	}
+
+	if _, err := uuid.Parse(trimmed); err == nil {
+		category, err := s.productRepo.FindCategoryByID(ctx, trimmed)
+		if err != nil {
+			if errors.Is(err, pgx.ErrNoRows) {
+				return nil, apperrors.New(apperrors.KindValidation, "Validation failed", map[string][]string{
+					"category_id": {"unknown category"},
+				})
+			}
+			return nil, apperrors.Wrap(apperrors.KindInternal, "Failed to retrieve category", err)
+		}
+		return category, nil
+	}
+
+	category, err := s.productRepo.FindCategoryByName(ctx, trimmed)
+	if err != nil {
+		if errors.Is(err, pgx.ErrNoRows) {
+			return nil, apperrors.New(apperrors.KindValidation, "Validation failed", map[string][]string{
+				"category_id": {"unknown category"},
+			})
+		}
+		return nil, apperrors.Wrap(apperrors.KindInternal, "Failed to retrieve category", err)
+	}
+
+	return category, nil
+}
+
+func (s *ProductService) resolveCategoryFilter(ctx context.Context, filter string) (string, error) {
+	trimmed := strings.TrimSpace(filter)
+	if trimmed == "" {
+		return "", nil
+	}
+
+	if _, err := uuid.Parse(trimmed); err == nil {
+		return trimmed, nil
+	}
+
+	category, err := s.productRepo.FindCategoryByName(ctx, trimmed)
+	if err != nil {
+		if errors.Is(err, pgx.ErrNoRows) {
+			return trimmed, nil
+		}
+		return "", apperrors.Wrap(apperrors.KindInternal, "Failed to resolve category filter", err)
+	}
+
+	return category.ID, nil
+}
+
 func (s *ProductService) CreateProduct(ctx context.Context, input CreateProductInput) (*models.Product, error) {
 	normalized, err := normalizeCreateProductInput(input)
+	if err != nil {
+		return nil, err
+	}
+
+	category, err := s.resolveCategory(ctx, normalized.CategoryID)
 	if err != nil {
 		return nil, err
 	}
@@ -152,9 +300,12 @@ func (s *ProductService) CreateProduct(ctx context.Context, input CreateProductI
 	product, err := s.productRepo.Create(
 		ctx,
 		normalized.Name,
-		normalized.Category,
+		category.ID,
+		category.Name,
 		normalized.Unit,
 		normalized.Price,
+		normalized.OldPrice,
+		normalized.Tag,
 		active,
 	)
 	if err != nil {
@@ -181,9 +332,12 @@ func (s *ProductService) UpdateProduct(ctx context.Context, id string, input Upd
 	}
 
 	name := current.Name
-	category := current.Category
+	categoryID := current.CategoryID
+	categoryName := current.Category
 	unit := current.Unit
 	price := current.Price
+	oldPrice := current.OldPrice
+	tag := current.Tag
 	active := current.Active
 	changed := false
 
@@ -191,8 +345,13 @@ func (s *ProductService) UpdateProduct(ctx context.Context, id string, input Upd
 		name = *input.Name
 		changed = true
 	}
-	if input.Category != nil {
-		category = *input.Category
+	if input.CategoryID != nil {
+		category, err := s.resolveCategory(ctx, *input.CategoryID)
+		if err != nil {
+			return nil, err
+		}
+		categoryID = category.ID
+		categoryName = category.Name
 		changed = true
 	}
 	if input.Unit != nil {
@@ -203,30 +362,76 @@ func (s *ProductService) UpdateProduct(ctx context.Context, id string, input Upd
 		price = *input.Price
 		changed = true
 	}
+	if input.OldPrice != nil {
+		oldPrice = input.OldPrice
+		changed = true
+	}
+	if input.Tag != nil {
+		tag = *input.Tag
+		changed = true
+	}
 	if input.Active != nil {
 		active = *input.Active
 		changed = true
 	}
 
 	if !changed {
-		return nil, apperrors.New(apperrors.KindValidation, "Validation failed", map[string][]string{
-			"product": {"at least one field must be provided"},
-		})
+		// No-op update: just return the current product with images.
+		if err := s.attachImagesToProduct(ctx, current); err != nil {
+			return nil, err
+		}
+		return current, nil
 	}
 
-	product, err := s.productRepo.Update(ctx, current.ID, name, category, unit, price, active)
+	updated, err := s.productRepo.Update(ctx, current.ID, name, categoryID, categoryName, unit, price, oldPrice, tag, active)
+	if err != nil {
+		return nil, apperrors.Wrap(apperrors.KindInternal, "Failed to update product", err)
+	}
+
+	if err := s.attachImagesToProduct(ctx, updated); err != nil {
+		return nil, err
+	}
+	return updated, nil
+}
+
+// DeleteProduct hard-deletes catalog products with no order history and
+// soft-deletes products that already appear in applications.
+func (s *ProductService) DeleteProduct(ctx context.Context, id string) (*DeleteProductResult, error) {
+	current, err := s.productRepo.FindByIDForAdmin(ctx, strings.TrimSpace(id))
 	if err != nil {
 		if errors.Is(err, pgx.ErrNoRows) {
 			return nil, apperrors.New(apperrors.KindNotFound, "Product not found", nil)
 		}
-		return nil, apperrors.Wrap(apperrors.KindInternal, "Failed to update product", err)
+		return nil, apperrors.Wrap(apperrors.KindInternal, "Failed to retrieve product", err)
 	}
 
-	if err := s.attachImagesToProduct(ctx, product); err != nil {
-		return nil, err
+	orderCount, err := s.productRepo.CountApplicationsByProductID(ctx, current.ID)
+	if err != nil {
+		return nil, apperrors.Wrap(apperrors.KindInternal, "Failed to check product usage", err)
 	}
 
-	return product, nil
+	if orderCount > 0 {
+		updated, err := s.productRepo.Update(ctx, current.ID, current.Name, current.CategoryID, current.Category, current.Unit, current.Price, current.OldPrice, current.Tag, false)
+		if err != nil {
+			return nil, apperrors.Wrap(apperrors.KindInternal, "Failed to deactivate product", err)
+		}
+		updated.Images = current.Images
+		return &DeleteProductResult{
+			Product:     updated,
+			Message:     "Product has existing orders, so it was set inactive instead of being deleted",
+			SoftDeleted: true,
+		}, nil
+	}
+
+	if err := s.productRepo.Delete(ctx, current.ID); err != nil {
+		return nil, apperrors.Wrap(apperrors.KindInternal, "Failed to delete product", err)
+	}
+
+	return &DeleteProductResult{
+		Product:     current,
+		Message:     "Product deleted successfully",
+		SoftDeleted: false,
+	}, nil
 }
 
 // AddProductImages uploads one or more images, creates product_images rows,
@@ -335,21 +540,25 @@ func (s *ProductService) DeleteProductImage(ctx context.Context, productID, imag
 
 func normalizeCreateProductInput(input CreateProductInput) (CreateProductInput, error) {
 	input.Name = strings.TrimSpace(input.Name)
-	input.Category = strings.TrimSpace(input.Category)
+	input.CategoryID = strings.TrimSpace(input.CategoryID)
 	input.Unit = strings.TrimSpace(input.Unit)
+	input.Tag = strings.TrimSpace(input.Tag)
 
 	errs := make(map[string][]string)
 	if input.Name == "" {
 		errs["name"] = []string{"required"}
 	}
-	if input.Category == "" {
-		errs["category"] = []string{"required"}
+	if input.CategoryID == "" {
+		errs["category_id"] = []string{"required"}
 	}
 	if input.Unit == "" {
 		errs["unit"] = []string{"required"}
 	}
 	if input.Price <= 0 {
 		errs["price"] = []string{"must be greater than 0"}
+	}
+	if input.OldPrice != nil && *input.OldPrice <= 0 {
+		errs["old_price"] = []string{"must be greater than 0"}
 	}
 	if len(errs) > 0 {
 		return CreateProductInput{}, apperrors.New(apperrors.KindValidation, "Validation failed", errs)
@@ -369,12 +578,12 @@ func normalizeUpdateProductInput(input *UpdateProductInput) error {
 			input.Name = &trimmed
 		}
 	}
-	if input.Category != nil {
-		trimmed := strings.TrimSpace(*input.Category)
+	if input.CategoryID != nil {
+		trimmed := strings.TrimSpace(*input.CategoryID)
 		if trimmed == "" {
-			errs["category"] = []string{"cannot be empty"}
+			errs["category_id"] = []string{"cannot be empty"}
 		} else {
-			input.Category = &trimmed
+			input.CategoryID = &trimmed
 		}
 	}
 	if input.Unit != nil {
@@ -387,6 +596,13 @@ func normalizeUpdateProductInput(input *UpdateProductInput) error {
 	}
 	if input.Price != nil && *input.Price <= 0 {
 		errs["price"] = []string{"must be greater than 0"}
+	}
+	if input.OldPrice != nil && *input.OldPrice <= 0 {
+		errs["old_price"] = []string{"must be greater than 0"}
+	}
+	if input.Tag != nil {
+		trimmed := strings.TrimSpace(*input.Tag)
+		input.Tag = &trimmed
 	}
 
 	if len(errs) > 0 {

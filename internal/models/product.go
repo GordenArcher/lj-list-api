@@ -6,12 +6,16 @@ package models
 // Images contains the full gallery so product media is no longer limited
 // to a single asset.
 type Product struct {
-	ID       string         `json:"id"`
-	Name     string         `json:"name"`
-	Category string         `json:"category"`
-	Price    int            `json:"price"`
-	ImageURL string         `json:"image_url"`
-	Images   []ProductImage `json:"images,omitempty"`
-	Unit     string         `json:"unit"` // "bag", "bottle", "carton", "pack", "tin", "box"
-	Active   bool           `json:"active"`
+	ID         string         `json:"id"`
+	LegacyID   *int           `json:"legacy_id,omitempty"`
+	CategoryID string         `json:"category_id"`
+	Name       string         `json:"name"`
+	Category   string         `json:"category"`
+	Price      int            `json:"price"`
+	OldPrice   *int           `json:"old_price,omitempty"`
+	Tag        string         `json:"tag,omitempty"`
+	ImageURL   string         `json:"image_url"`
+	Images     []ProductImage `json:"images,omitempty"`
+	Unit       string         `json:"unit"` // "bag", "bottle", "carton", "pack", "tin", "box"
+	Active     bool           `json:"active"`
 }
