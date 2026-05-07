@@ -8,6 +8,7 @@ import (
 	"strconv"
 	"strings"
 
+	"github.com/GordenArcher/lj-list-api/internal/apperrors"
 	"github.com/GordenArcher/lj-list-api/internal/config"
 	"github.com/GordenArcher/lj-list-api/internal/models"
 	"github.com/GordenArcher/lj-list-api/internal/repositories"
@@ -149,6 +150,16 @@ func (s *PackageService) GetDetergentPackagesAdmin(ctx context.Context) []models
 func (s *PackageService) CreateFixedPackage(ctx context.Context, pkg models.FixedPackage) (*models.FixedPackage, error) {
 	normalized, err := normalizeFixedPackage(pkg)
 	if err != nil {
+		return nil, apperrors.New(apperrors.KindValidation, "Validation failed", map[string][]string{
+			"package": {err.Error()},
+		})
+	}
+
+	if _, err := s.packageRepo.FindFixedByID(ctx, normalized.ID, true); err == nil {
+		return nil, apperrors.New(apperrors.KindConflict, "Package ID already exists", map[string][]string{
+			"id": {"this package id is already in use"},
+		})
+	} else if !errors.Is(err, pgx.ErrNoRows) {
 		return nil, err
 	}
 
@@ -207,7 +218,17 @@ func (s *PackageService) CreateDepartmentPackage(ctx context.Context, kind strin
 
 	normalized, err := normalizeSimplePackage(pkg)
 	if err != nil {
+		return nil, apperrors.New(apperrors.KindValidation, "Validation failed", map[string][]string{
+			"package": {err.Error()},
+		})
+	}
+
+	if exists, err := s.departmentPackageIDExists(ctx, normalized.ID); err != nil {
 		return nil, err
+	} else if exists {
+		return nil, apperrors.New(apperrors.KindConflict, "Package ID already exists", map[string][]string{
+			"id": {"this package id is already in use"},
+		})
 	}
 
 	sortOrder := s.nextDepartmentSortOrder(ctx, kind)
@@ -216,6 +237,17 @@ func (s *PackageService) CreateDepartmentPackage(ctx context.Context, kind strin
 		return nil, err
 	}
 	return created, nil
+}
+
+func (s *PackageService) departmentPackageIDExists(ctx context.Context, id string) (bool, error) {
+	for _, kind := range []string{"provisions", "detergents"} {
+		if _, err := s.packageRepo.FindDepartmentByID(ctx, kind, id, true); err == nil {
+			return true, nil
+		} else if !errors.Is(err, pgx.ErrNoRows) {
+			return false, err
+		}
+	}
+	return false, nil
 }
 
 func (s *PackageService) UpdateDepartmentPackage(ctx context.Context, kind, id string, pkg models.SimplePackage) (*models.SimplePackage, error) {

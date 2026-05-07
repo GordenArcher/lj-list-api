@@ -75,6 +75,8 @@ func (r *stubApplicationProductRepo) FindByLegacyID(ctx context.Context, legacyI
 
 type stubApplicationPackageRepo struct {
 	fixedByName map[string]*models.FixedPackage
+	fixedByID   map[string]*models.FixedPackage
+	department  map[string]map[string]*models.SimplePackage
 }
 
 func (r *stubApplicationPackageRepo) FindFixedByName(ctx context.Context, name string, includeInactive bool) (*models.FixedPackage, error) {
@@ -82,6 +84,28 @@ func (r *stubApplicationPackageRepo) FindFixedByName(ctx context.Context, name s
 		if pkg, ok := r.fixedByName[name]; ok && pkg != nil {
 			copy := *pkg
 			return &copy, nil
+		}
+	}
+	return nil, pgx.ErrNoRows
+}
+
+func (r *stubApplicationPackageRepo) FindFixedByID(ctx context.Context, id string, includeInactive bool) (*models.FixedPackage, error) {
+	if r.fixedByID != nil {
+		if pkg, ok := r.fixedByID[id]; ok && pkg != nil {
+			copy := *pkg
+			return &copy, nil
+		}
+	}
+	return nil, pgx.ErrNoRows
+}
+
+func (r *stubApplicationPackageRepo) FindDepartmentByID(ctx context.Context, kind, id string, includeInactive bool) (*models.SimplePackage, error) {
+	if r.department != nil {
+		if byID, ok := r.department[kind]; ok {
+			if pkg, ok := byID[id]; ok && pkg != nil {
+				copy := *pkg
+				return &copy, nil
+			}
 		}
 	}
 	return nil, pgx.ErrNoRows
@@ -135,6 +159,7 @@ func TestApplicationServiceSubmitFallsBackToUserProfileIdentityFields(t *testing
 		context.Background(),
 		"user-1",
 		"fixed",
+		"",
 		"Abusua Asomdwee",
 		nil,
 		"",
@@ -190,6 +215,7 @@ func TestApplicationServiceSubmitPrefersRequestIdentityFields(t *testing.T) {
 		context.Background(),
 		"user-1",
 		"fixed",
+		"",
 		"Abusua Asomdwee",
 		nil,
 		"NEW-STAFF",
@@ -232,6 +258,7 @@ func TestApplicationServiceSubmitRejectsMissingIdentityFieldsWhenProfileAlsoMiss
 		context.Background(),
 		"user-1",
 		"fixed",
+		"",
 		"Abusua Asomdwee",
 		nil,
 		"",
@@ -289,6 +316,7 @@ func TestApplicationServiceSubmitUsesFixedPackagePricing(t *testing.T) {
 				context.Background(),
 				"user-1",
 				"fixed",
+				"",
 				tc.packageName,
 				nil,
 				"",
@@ -302,6 +330,170 @@ func TestApplicationServiceSubmitUsesFixedPackagePricing(t *testing.T) {
 
 			if app == nil || app.TotalAmount != tc.want {
 				t.Fatalf("expected total amount %d, got %#v", tc.want, app)
+			}
+		})
+	}
+}
+
+func TestApplicationServiceSubmitAcceptsFixedPackageDisplayOption(t *testing.T) {
+	t.Parallel()
+
+	appRepo := &stubApplicationRepo{}
+	service := &ApplicationService{
+		applicationRepo: appRepo,
+		productRepo:     &stubApplicationProductRepo{},
+		packageRepo: &stubApplicationPackageRepo{
+			fixedByName: map[string]*models.FixedPackage{
+				"Abusua Asomdwee": &models.FixedPackage{ID: "abusua", Name: "Abusua Asomdwee", Price: "GH₵930"},
+			},
+		},
+		userRepo: &stubApplicationUserRepo{
+			user: &models.User{
+				ID:              "user-1",
+				StaffNumber:     "ST12345",
+				Institution:     "ECG",
+				GhanaCardNumber: "GHA-000000000-1",
+			},
+		},
+		cfg: config.Config{MinOrder: 1},
+	}
+
+	app, err := service.Submit(
+		context.Background(),
+		"user-1",
+		"fixed",
+		"",
+		"Abusua Asomdwee (GH₵930)",
+		nil,
+		"",
+		"007",
+		"",
+		"",
+	)
+	if err != nil {
+		t.Fatalf("Submit returned error: %v", err)
+	}
+
+	if app == nil || app.TotalAmount != 930 {
+		t.Fatalf("expected total amount 930, got %#v", app)
+	}
+}
+
+func TestApplicationServiceSubmitAcceptsFixedPackageID(t *testing.T) {
+	t.Parallel()
+
+	appRepo := &stubApplicationRepo{}
+	service := &ApplicationService{
+		applicationRepo: appRepo,
+		productRepo:     &stubApplicationProductRepo{},
+		packageRepo: &stubApplicationPackageRepo{
+			fixedByID: map[string]*models.FixedPackage{
+				"abusua": &models.FixedPackage{ID: "abusua", Name: "Abusua Asomdwee", Price: "GH₵930"},
+			},
+		},
+		userRepo: &stubApplicationUserRepo{
+			user: &models.User{
+				ID:              "user-1",
+				StaffNumber:     "ST12345",
+				Institution:     "ECG",
+				GhanaCardNumber: "GHA-000000000-1",
+			},
+		},
+		cfg: config.Config{MinOrder: 1},
+	}
+
+	app, err := service.Submit(
+		context.Background(),
+		"user-1",
+		"fixed",
+		"abusua",
+		"",
+		nil,
+		"",
+		"007",
+		"",
+		"",
+	)
+	if err != nil {
+		t.Fatalf("Submit returned error: %v", err)
+	}
+
+	if app == nil || app.PackageName != "Abusua Asomdwee" || app.TotalAmount != 930 {
+		t.Fatalf("unexpected app result: %#v", app)
+	}
+}
+
+func TestApplicationServiceSubmitAcceptsDepartmentPackageID(t *testing.T) {
+	t.Parallel()
+
+	cases := []struct {
+		name        string
+		packageType string
+		packageID   string
+		packageName string
+		price       int
+	}{
+		{
+			name:        "provisions",
+			packageType: "provisions",
+			packageID:   "maakye",
+			packageName: "Maakye",
+			price:       250,
+		},
+		{
+			name:        "detergents",
+			packageType: "detergents",
+			packageID:   "mawohonte",
+			packageName: "Ma Wo Ho Nte",
+			price:       270,
+		},
+	}
+
+	for _, tc := range cases {
+		tc := tc
+		t.Run(tc.name, func(t *testing.T) {
+			t.Parallel()
+
+			appRepo := &stubApplicationRepo{}
+			service := &ApplicationService{
+				applicationRepo: appRepo,
+				productRepo:     &stubApplicationProductRepo{},
+				packageRepo: &stubApplicationPackageRepo{
+					department: map[string]map[string]*models.SimplePackage{
+						tc.packageType: {
+							tc.packageID: &models.SimplePackage{ID: tc.packageID, Name: tc.packageName, Price: tc.price},
+						},
+					},
+				},
+				userRepo: &stubApplicationUserRepo{
+					user: &models.User{
+						ID:              "user-1",
+						StaffNumber:     "ST12345",
+						Institution:     "ECG",
+						GhanaCardNumber: "GHA-000000000-1",
+					},
+				},
+				cfg: config.Config{MinOrder: 1},
+			}
+
+			app, err := service.Submit(
+				context.Background(),
+				"user-1",
+				tc.packageType,
+				tc.packageID,
+				"",
+				nil,
+				"",
+				"007",
+				"",
+				"",
+			)
+			if err != nil {
+				t.Fatalf("Submit returned error: %v", err)
+			}
+
+			if app == nil || app.PackageType != tc.packageType || app.PackageName != tc.packageName || app.TotalAmount != tc.price {
+				t.Fatalf("unexpected app result: %#v", app)
 			}
 		})
 	}
@@ -342,6 +534,7 @@ func TestApplicationServiceSubmitResolvesLegacyNumericProductIDs(t *testing.T) {
 		context.Background(),
 		"user-1",
 		"custom",
+		"",
 		"",
 		[]CartItemInput{{ProductID: "101", Quantity: 2}},
 		"",

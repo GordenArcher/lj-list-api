@@ -10,14 +10,14 @@ import (
 )
 
 type MessageHandler struct {
-	messageService *services.MessageService
-	smsService     *services.SMSService
+	messageService      *services.MessageService
+	notificationService messageNotificationService
 }
 
-func NewMessageHandler(messageService *services.MessageService, smsService *services.SMSService) *MessageHandler {
+func NewMessageHandler(messageService *services.MessageService, notificationService *services.MessageNotificationService) *MessageHandler {
 	return &MessageHandler{
-		messageService: messageService,
-		smsService:     smsService,
+		messageService:      messageService,
+		notificationService: notificationService,
 	}
 }
 
@@ -51,7 +51,9 @@ func (h *MessageHandler) Send(c *gin.Context) {
 		return
 	}
 
-	h.smsService.NotifyAdminNewMessage(c.Request.Context(), userID, userRole, req.Content)
+	if h.notificationService != nil {
+		h.notificationService.NotifyMessage(c.Request.Context(), conversationID, userID, userRole, req.Content)
+	}
 	utils.Success(c, http.StatusCreated, "Message sent", msg)
 }
 

@@ -44,6 +44,8 @@ type applicationProductRepository interface {
 
 type applicationPackageRepository interface {
 	FindFixedByName(ctx context.Context, name string, includeInactive bool) (*models.FixedPackage, error)
+	FindFixedByID(ctx context.Context, id string, includeInactive bool) (*models.FixedPackage, error)
+	FindDepartmentByID(ctx context.Context, kind, id string, includeInactive bool) (*models.SimplePackage, error)
 }
 
 func NewApplicationService(
@@ -67,10 +69,11 @@ func NewApplicationService(
 // the cart items so the application is a point-in-time snapshot. The minimum
 // order threshold is enforced here, the handler layer also checks, but
 // the service is the authoritative gate.
-func (s *ApplicationService) Submit(ctx context.Context, userID, packageType, packageName string, cartItems []CartItemInput, staffNumber, mandateNumber, institution, ghanaCardNumber string) (*models.Application, error) {
-	if packageType != "fixed" && packageType != "custom" {
+func (s *ApplicationService) Submit(ctx context.Context, userID, packageType, packageID, packageName string, cartItems []CartItemInput, staffNumber, mandateNumber, institution, ghanaCardNumber string) (*models.Application, error) {
+	packageType = normalizeApplicationPackageType(packageType)
+	if packageType == "" {
 		return nil, apperrors.New(apperrors.KindValidation, "Validation failed", map[string][]string{
-			"package_type": {"must be 'fixed' or 'custom'"},
+			"package_type": {"must be 'fixed', 'provisions', 'detergents', or 'custom'"},
 		})
 	}
 
@@ -106,6 +109,7 @@ func (s *ApplicationService) Submit(ctx context.Context, userID, packageType, pa
 
 	var items []models.CartItem
 	var total int
+	resolvedPackageName := ""
 
 	if packageType == "custom" {
 		// Validate cart items against the product catalog. Each product
@@ -148,28 +152,25 @@ func (s *ApplicationService) Submit(ctx context.Context, userID, packageType, pa
 			})
 		}
 	} else {
-		if strings.TrimSpace(packageName) == "" {
+		if strings.TrimSpace(packageID) == "" && strings.TrimSpace(packageName) == "" {
 			return nil, apperrors.New(apperrors.KindValidation, "Validation failed", map[string][]string{
-				"package_name": {"required for fixed packages"},
+				"package_id": {"required for predefined packages"},
 			})
 		}
 
-		// Fixed packages have no cart items. The total is resolved from the
-		// active fixed_packages table so pricing stays in the database.
-		pkg, err := s.packageRepo.FindFixedByName(ctx, packageName, false)
+		// Predefined packages have no cart items. The total is resolved from
+		// the active package catalog so pricing stays in the database.
+		resolved, err := s.resolvePredefinedPackage(ctx, packageType, packageID, packageName)
 		if err != nil {
 			if errors.Is(err, pgx.ErrNoRows) {
 				return nil, apperrors.New(apperrors.KindValidation, "Validation failed", map[string][]string{
-					"package_name": {"unknown fixed package"},
+					"package_id": {"unknown package"},
 				})
 			}
-			return nil, apperrors.Wrap(apperrors.KindInternal, "Failed to resolve fixed package", err)
+			return nil, apperrors.Wrap(apperrors.KindInternal, "Failed to resolve package", err)
 		}
-
-		total, err = parseCurrencyAmount(pkg.Price)
-		if err != nil {
-			return nil, apperrors.Wrap(apperrors.KindInternal, "Failed to parse fixed package price", err)
-		}
+		resolvedPackageName = resolved.Name
+		total = resolved.TotalAmount
 	}
 
 	if total < s.cfg.MinOrder {
@@ -187,7 +188,7 @@ func (s *ApplicationService) Submit(ctx context.Context, userID, packageType, pa
 	app := &models.Application{
 		UserID:          userID,
 		PackageType:     packageType,
-		PackageName:     packageName,
+		PackageName:     resolvedPackageName,
 		CartItems:       items,
 		TotalAmount:     total,
 		MonthlyAmount:   monthly,
@@ -203,6 +204,73 @@ func (s *ApplicationService) Submit(ctx context.Context, userID, packageType, pa
 	}
 
 	return created, nil
+}
+
+type resolvedPackage struct {
+	Name        string
+	TotalAmount int
+}
+
+func (s *ApplicationService) resolvePredefinedPackage(ctx context.Context, packageType, packageID, packageName string) (resolvedPackage, error) {
+	if packageType == "fixed" {
+		pkg, err := s.resolveFixedPackage(ctx, packageID, packageName)
+		if err != nil {
+			return resolvedPackage{}, err
+		}
+
+		total, err := parseCurrencyAmount(pkg.Price)
+		if err != nil {
+			return resolvedPackage{}, fmt.Errorf("parse fixed package price: %w", err)
+		}
+
+		return resolvedPackage{Name: pkg.Name, TotalAmount: total}, nil
+	}
+
+	id := strings.TrimSpace(packageID)
+	if id == "" {
+		id = strings.TrimSpace(packageName)
+	}
+	if id == "" {
+		return resolvedPackage{}, pgx.ErrNoRows
+	}
+
+	pkg, err := s.packageRepo.FindDepartmentByID(ctx, packageType, id, false)
+	if err != nil {
+		return resolvedPackage{}, err
+	}
+
+	return resolvedPackage{Name: pkg.Name, TotalAmount: pkg.Price}, nil
+}
+
+func (s *ApplicationService) resolveFixedPackage(ctx context.Context, packageID, packageName string) (*models.FixedPackage, error) {
+	normalizedID := strings.TrimSpace(packageID)
+	if normalizedID != "" {
+		return s.packageRepo.FindFixedByID(ctx, normalizedID, false)
+	}
+
+	normalizedName := normalizeFixedPackageSelection(packageName)
+	if normalizedName == "" {
+		return nil, pgx.ErrNoRows
+	}
+
+	if pkg, err := s.packageRepo.FindFixedByName(ctx, normalizedName, false); err == nil {
+		return pkg, nil
+	} else if !errors.Is(err, pgx.ErrNoRows) {
+		return nil, err
+	}
+
+	return s.packageRepo.FindFixedByID(ctx, normalizedName, false)
+}
+
+func normalizeApplicationPackageType(packageType string) string {
+	switch strings.ToLower(strings.TrimSpace(packageType)) {
+	case "fixed", "provisions", "detergents", "custom":
+		return strings.ToLower(strings.TrimSpace(packageType))
+	case "detergent":
+		return "detergents"
+	default:
+		return ""
+	}
 }
 
 func (s *ApplicationService) findCartProduct(ctx context.Context, productID string) (*models.Product, error) {
@@ -305,6 +373,16 @@ func resolveApplicationIdentityField(requestValue, profileValue string) string {
 		return trimmed
 	}
 	return strings.TrimSpace(profileValue)
+}
+
+func normalizeFixedPackageSelection(value string) string {
+	trimmed := strings.TrimSpace(value)
+	if strings.HasSuffix(trimmed, ")") {
+		if idx := strings.LastIndex(trimmed, " ("); idx > 0 {
+			trimmed = strings.TrimSpace(trimmed[:idx])
+		}
+	}
+	return trimmed
 }
 
 func parseCurrencyAmount(value string) (int, error) {

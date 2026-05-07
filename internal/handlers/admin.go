@@ -38,6 +38,16 @@ func (h *AdminHandler) ListApplications(c *gin.Context) {
 	})
 }
 
+func (h *AdminHandler) GetApplication(c *gin.Context) {
+	app, err := h.applicationService.GetByID(c.Request.Context(), c.Param("id"), "")
+	if err != nil {
+		utils.HandleError(c, err, "Failed to retrieve application")
+		return
+	}
+
+	utils.Success(c, http.StatusOK, "Application retrieved", app)
+}
+
 type updateApplicationRequest struct {
 	Status string `json:"status"`
 }

@@ -27,10 +27,10 @@ type ApplicationCustomer struct {
 	Role        string `json:"role"`
 }
 
-// Application represents a customer's grocery order request. PackageType
-// is either "fixed" or "custom". For fixed packages, PackageName holds the
-// selected tier and CartItems is empty. For custom packages, CartItems
-// contains the line items and PackageName is empty.
+// Application represents a customer's grocery order request. PackageType is
+// "fixed", "provisions", "detergents", or "custom". For predefined packages,
+// PackageName holds the resolved package name and CartItems is empty. For
+// custom packages, CartItems contains the line items and PackageName is empty.
 type Application struct {
 	ID              string               `json:"id"`
 	UserID          string               `json:"user_id"`

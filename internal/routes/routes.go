@@ -53,6 +53,7 @@ func Register(router *gin.Engine, pool *pgxpool.Pool, cfg config.Config) {
 	conversationService := services.NewConversationService(conversationRepo, userRepo)
 	messageService := services.NewMessageService(messageRepo, conversationRepo)
 	dashboardService := services.NewDashboardService(dashboardRepo, cfg)
+	messageNotificationService := services.NewMessageNotificationService(conversationRepo, smsService, cfg)
 
 	// Handlers
 	authHandler := handlers.NewAuthHandler(authService, cfg)
@@ -62,8 +63,8 @@ func Register(router *gin.Engine, pool *pgxpool.Pool, cfg config.Config) {
 	categoryHandler := handlers.NewCategoryHandler(categoryService)
 	dashboardHandler := handlers.NewDashboardHandler(dashboardService)
 	applicationHandler := handlers.NewApplicationHandler(applicationService, smsService)
-	conversationHandler := handlers.NewConversationHandler(conversationService, smsService)
-	messageHandler := handlers.NewMessageHandler(messageService, smsService)
+	conversationHandler := handlers.NewConversationHandler(conversationService, messageNotificationService)
+	messageHandler := handlers.NewMessageHandler(messageService, messageNotificationService)
 	adminHandler := handlers.NewAdminHandler(applicationService)
 
 	// Versioned API root. Every endpoint in this service lives under /api/v1.
@@ -151,6 +152,7 @@ func Register(router *gin.Engine, pool *pgxpool.Pool, cfg config.Config) {
 		admin.GET("/users", userHandler.ListUsers)
 		admin.PATCH("/users/:id", userHandler.UpdateUser)
 		admin.GET("/applications", adminHandler.ListApplications)
+		admin.GET("/applications/:id", adminHandler.GetApplication)
 		admin.PATCH("/applications/:id", adminHandler.UpdateApplication)
 		admin.GET("/dashboard", dashboardHandler.Stats)
 		admin.GET("/conversations", conversationHandler.List)

@@ -2,8 +2,10 @@ package services
 
 import (
 	"context"
+	"errors"
 	"testing"
 
+	"github.com/GordenArcher/lj-list-api/internal/apperrors"
 	"github.com/GordenArcher/lj-list-api/internal/config"
 	"github.com/GordenArcher/lj-list-api/internal/models"
 	"github.com/jackc/pgx/v5"
@@ -42,7 +44,9 @@ func (r *stubPackageImageRepo) FindByProductID(ctx context.Context, productID st
 }
 
 type stubPackageRepo struct {
-	fixed []models.FixedPackage
+	fixed        []models.FixedPackage
+	fixedByID    map[string]*models.FixedPackage
+	departmentID map[string]map[string]*models.SimplePackage
 }
 
 func (r *stubPackageRepo) ListFixed(ctx context.Context, includeInactive bool) ([]models.FixedPackage, error) {
@@ -50,6 +54,12 @@ func (r *stubPackageRepo) ListFixed(ctx context.Context, includeInactive bool) (
 }
 
 func (r *stubPackageRepo) FindFixedByID(ctx context.Context, id string, includeInactive bool) (*models.FixedPackage, error) {
+	if r.fixedByID != nil {
+		if pkg, ok := r.fixedByID[id]; ok && pkg != nil {
+			copy := *pkg
+			return &copy, nil
+		}
+	}
 	return nil, pgx.ErrNoRows
 }
 
@@ -70,6 +80,14 @@ func (r *stubPackageRepo) ListDepartment(ctx context.Context, kind string, inclu
 }
 
 func (r *stubPackageRepo) FindDepartmentByID(ctx context.Context, kind, id string, includeInactive bool) (*models.SimplePackage, error) {
+	if r.departmentID != nil {
+		if byID, ok := r.departmentID[kind]; ok {
+			if pkg, ok := byID[id]; ok && pkg != nil {
+				copy := *pkg
+				return &copy, nil
+			}
+		}
+	}
 	return nil, pgx.ErrNoRows
 }
 
@@ -142,5 +160,90 @@ func TestPackageServiceGetFixedPackagesHydratesImages(t *testing.T) {
 	}
 	if packages[0].Items[0].Product == nil || packages[0].Items[0].Product.ID != "prod-113" {
 		t.Fatalf("expected hydrated product snapshot, got %#v", packages[0].Items[0].Product)
+	}
+}
+
+func TestPackageServiceCreateFixedPackageRejectsDuplicateID(t *testing.T) {
+	t.Parallel()
+
+	service := &PackageService{
+		packageRepo: &stubPackageRepo{
+			fixedByID: map[string]*models.FixedPackage{
+				"abusua": {ID: "abusua", Name: "Abusua Asomdwee", Price: "GH₵930", Monthly: "GH₵310/mo"},
+			},
+		},
+	}
+
+	_, err := service.CreateFixedPackage(context.Background(), models.FixedPackage{
+		ID:      "abusua",
+		Name:    "Abusua Asomdwee",
+		Price:   "GH₵930",
+		Monthly: "GH₵310/mo",
+	})
+	if err == nil {
+		t.Fatal("expected duplicate package id error")
+	}
+
+	var appErr *apperrors.Error
+	if !errors.As(err, &appErr) || appErr.Kind != apperrors.KindConflict {
+		t.Fatalf("expected conflict app error, got %#v", err)
+	}
+}
+
+func TestPackageServiceCreateDepartmentPackageRejectsDuplicateID(t *testing.T) {
+	t.Parallel()
+
+	service := &PackageService{
+		packageRepo: &stubPackageRepo{
+			departmentID: map[string]map[string]*models.SimplePackage{
+				"provisions": {
+					"maakye": {ID: "maakye", Name: "Maakye", Price: 250, Items: "1 Milo tin"},
+				},
+			},
+		},
+	}
+
+	_, err := service.CreateDepartmentPackage(context.Background(), "provisions", models.SimplePackage{
+		ID:    "maakye",
+		Name:  "Maakye",
+		Price: 250,
+		Items: "1 Milo tin",
+	})
+	if err == nil {
+		t.Fatal("expected duplicate package id error")
+	}
+
+	var appErr *apperrors.Error
+	if !errors.As(err, &appErr) || appErr.Kind != apperrors.KindConflict {
+		t.Fatalf("expected conflict app error, got %#v", err)
+	}
+}
+
+func TestPackageServiceCreateDepartmentPackageRejectsDuplicateIDInOtherKind(t *testing.T) {
+	t.Parallel()
+
+	service := &PackageService{
+		packageRepo: &stubPackageRepo{
+			departmentID: map[string]map[string]*models.SimplePackage{
+				"detergents": {
+					"shared": {ID: "shared", Name: "Detergent Package", Price: 270, Items: "Soap"},
+				},
+			},
+		},
+	}
+
+	_, err := service.CreateDepartmentPackage(context.Background(), "provisions", models.SimplePackage{
+		ID:    "shared",
+		Name:  "Provision Package",
+		Price: 250,
+		Items: "Milo",
+	})
+	if err == nil {
+		t.Fatal("expected duplicate package id error")
+	}
+
+	var appErr *apperrors.Error
+	if !errors.As(err, &appErr) || appErr.Kind != apperrors.KindConflict {
+		t.Fatalf("expected conflict app error, got %#v", err)
 	}
 }

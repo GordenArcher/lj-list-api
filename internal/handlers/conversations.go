@@ -19,22 +19,22 @@ type conversationService interface {
 	GetAdminConversationsCount(ctx context.Context) (int, error)
 }
 
-type conversationSMSService interface {
-	NotifyAdminNewMessage(ctx context.Context, senderID, senderRole, content string)
+type messageNotificationService interface {
+	NotifyMessage(ctx context.Context, conversationID, senderID, senderRole, content string)
 }
 
 type ConversationHandler struct {
 	conversationService conversationService
-	smsService          conversationSMSService
+	notificationService messageNotificationService
 }
 
 func NewConversationHandler(
 	conversationService *services.ConversationService,
-	smsService *services.SMSService,
+	smsService *services.MessageNotificationService,
 ) *ConversationHandler {
 	return &ConversationHandler{
 		conversationService: conversationService,
-		smsService:          smsService,
+		notificationService: smsService,
 	}
 }
 
@@ -67,7 +67,9 @@ func (h *ConversationHandler) Create(c *gin.Context) {
 	}
 
 	if created {
-		h.smsService.NotifyAdminNewMessage(c.Request.Context(), userID, utils.GetUserRoleFromContext(c), req.Message)
+		if h.notificationService != nil {
+			h.notificationService.NotifyMessage(c.Request.Context(), conv.ID, userID, utils.GetUserRoleFromContext(c), req.Message)
+		}
 		utils.Success(c, http.StatusCreated, "Conversation started", conv)
 		return
 	}

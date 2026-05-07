@@ -5,5 +5,5 @@ type Category struct {
 	ID        string `json:"id"`
 	Name      string `json:"name"`
 	SortOrder int    `json:"-"`
-	Active    bool   `json:"-"`
+	Active    bool   `json:"active"`
 }

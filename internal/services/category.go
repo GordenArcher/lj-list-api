@@ -18,6 +18,7 @@ type categoryRepository interface {
 	Create(ctx context.Context, cat *models.Category) (*models.Category, error)
 	Update(ctx context.Context, id string, cat *models.Category) (*models.Category, error)
 	Deactivate(ctx context.Context, id string) error
+	Delete(ctx context.Context, id string) error
 	CountProductsByCategoryID(ctx context.Context, categoryID string) (int, error)
 	UpdateProductCategoryName(ctx context.Context, categoryID, categoryName string) error
 }
@@ -152,8 +153,8 @@ func (s *CategoryService) Delete(ctx context.Context, id string) (*models.Catego
 		return current, true, nil
 	}
 
-	if err := s.categoryRepo.Deactivate(ctx, current.ID); err != nil {
-		return nil, false, apperrors.Wrap(apperrors.KindInternal, "Failed to deactivate category", err)
+	if err := s.categoryRepo.Delete(ctx, current.ID); err != nil {
+		return nil, false, apperrors.Wrap(apperrors.KindInternal, "Failed to delete category", err)
 	}
 	current.Active = false
 	return current, false, nil

@@ -52,7 +52,7 @@ type stubConversationHandlerSMSService struct {
 	calls int
 }
 
-func (s *stubConversationHandlerSMSService) NotifyAdminNewMessage(ctx context.Context, senderID, senderRole, content string) {
+func (s *stubConversationHandlerSMSService) NotifyMessage(ctx context.Context, conversationID, senderID, senderRole, content string) {
 	s.calls++
 }
 
@@ -77,7 +77,7 @@ func TestConversationCreateReturnsExistingConversationWithoutSendingSMS(t *testi
 			},
 			created: false,
 		},
-		smsService: smsService,
+		notificationService: smsService,
 	}
 
 	handler.Create(ctx)
@@ -111,7 +111,7 @@ func TestConversationCreateReturnsCreatedConversationAndSendsSMS(t *testing.T) {
 			},
 			created: true,
 		},
-		smsService: smsService,
+		notificationService: smsService,
 	}
 
 	handler.Create(ctx)

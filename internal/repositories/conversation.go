@@ -5,9 +5,11 @@ import (
 	"errors"
 	"fmt"
 	"strings"
+	"time"
 
 	"github.com/GordenArcher/lj-list-api/internal/models"
 	"github.com/jackc/pgx/v5"
+	"github.com/jackc/pgx/v5/pgtype"
 	"github.com/jackc/pgx/v5/pgxpool"
 )
 
@@ -75,6 +77,70 @@ func (r *ConversationRepository) FindOrCreateWithInitialMessage(ctx context.Cont
 	}
 
 	return conv, created, nil
+}
+
+func (r *ConversationRepository) RegisterCustomerMessageNotification(ctx context.Context, conversationID string, cooldown time.Duration) (bool, int, error) {
+	tx, err := r.pool.BeginTx(ctx, pgx.TxOptions{})
+	if err != nil {
+		return false, 0, fmt.Errorf("begin notification transaction: %w", err)
+	}
+	defer tx.Rollback(ctx)
+
+	var lastSMSAt pgtype.Timestamptz
+	var pendingCount int
+	if err := tx.QueryRow(ctx, `
+		SELECT last_admin_message_sms_at, pending_customer_message_count
+		FROM conversations
+		WHERE id = $1
+		FOR UPDATE
+	`, conversationID).Scan(&lastSMSAt, &pendingCount); err != nil {
+		return false, 0, fmt.Errorf("lock conversation notification state: %w", err)
+	}
+
+	now := time.Now().UTC()
+	shouldNotify := !lastSMSAt.Valid || now.Sub(lastSMSAt.Time) >= cooldown
+	notificationCount := pendingCount + 1
+
+	if shouldNotify {
+		if _, err := tx.Exec(ctx, `
+			UPDATE conversations
+			SET last_admin_message_sms_at = $2,
+				pending_customer_message_count = 0,
+				last_customer_message_at = $2
+			WHERE id = $1
+		`, conversationID, now); err != nil {
+			return false, 0, fmt.Errorf("mark customer message notification sent: %w", err)
+		}
+	} else {
+		if _, err := tx.Exec(ctx, `
+			UPDATE conversations
+			SET pending_customer_message_count = pending_customer_message_count + 1,
+				last_customer_message_at = $2
+			WHERE id = $1
+		`, conversationID, now); err != nil {
+			return false, 0, fmt.Errorf("increment pending customer notifications: %w", err)
+		}
+		notificationCount = 0
+	}
+
+	if err := tx.Commit(ctx); err != nil {
+		return false, 0, fmt.Errorf("commit notification transaction: %w", err)
+	}
+
+	return shouldNotify, notificationCount, nil
+}
+
+func (r *ConversationRepository) ResetMessageNotificationThrottle(ctx context.Context, conversationID string) error {
+	_, err := r.pool.Exec(ctx, `
+		UPDATE conversations
+		SET last_admin_message_sms_at = NULL,
+			pending_customer_message_count = 0
+		WHERE id = $1
+	`, conversationID)
+	if err != nil {
+		return fmt.Errorf("reset message notification throttle: %w", err)
+	}
+	return nil
 }
 
 func upsertConversation(ctx context.Context, q conversationQueryRow, first, second string) (*models.Conversation, error) {

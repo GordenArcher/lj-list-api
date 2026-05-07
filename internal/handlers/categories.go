@@ -103,14 +103,19 @@ func (h *CategoryHandler) Delete(c *gin.Context) {
 		return
 	}
 
-	message := "Category deactivated successfully"
+	message := "Category deleted successfully"
+	deactivated := false
+	deleted := true
 	if softDeleted {
 		message = "Category had products, so it was deactivated instead of being deleted"
+		deactivated = true
+		deleted = false
 	}
 
 	utils.Success(c, http.StatusOK, message, gin.H{
 		"category":     cat,
-		"deactivated":  true,
+		"deleted":      deleted,
+		"deactivated":  deactivated,
 		"soft_deleted": softDeleted,
 		"message":      message,
 	})

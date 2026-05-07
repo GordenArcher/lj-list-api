@@ -34,6 +34,9 @@ type Config struct {
 	HubtelClientSecret string
 	HubtelSMSURL       string
 	HubtelSenderID     string
+	// MessageSMSCooldownMinutes controls how often customer chat activity can
+	// trigger admin SMS notifications per conversation.
+	MessageSMSCooldownMinutes int
 
 	// AllowedOrigins is the CORS allowlist. Default includes Vite dev server.
 	AllowedOrigins []string
@@ -84,6 +87,10 @@ func Load() Config {
 		HubtelClientSecret: godenv.Get("HUBTEL_CLIENT_SECRET", godenv.Get("HUBTEL_API_KEY", "")),
 		HubtelSMSURL:       godenv.Get("HUBTEL_SMS_URL", "https://smsc.hubtel.com/v1/messages/send"),
 		HubtelSenderID:     godenv.Get("HUBTEL_SENDER_ID", "LJList"),
+		MessageSMSCooldownMinutes: parsePositiveInt(
+			godenv.Get("MESSAGE_SMS_COOLDOWN_MINUTES", "30"),
+			30,
+		),
 		AllowedOrigins: parseCSV(
 			godenv.Get("CORS_ALLOWED_ORIGINS", "http://localhost:5173"),
 			[]string{"http://localhost:5173"},

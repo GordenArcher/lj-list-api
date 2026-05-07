@@ -60,6 +60,7 @@ make run
 | `HUBTEL_CLIENT_SECRET` | Hubtel SMS client secret | required |
 | `HUBTEL_SMS_URL` | Hubtel SMS send endpoint | `https://smsc.hubtel.com/v1/messages/send` |
 | `HUBTEL_SENDER_ID` | SMS sender ID | `LJList` |
+| `MESSAGE_SMS_COOLDOWN_MINUTES` | Per-conversation customer chat SMS cooldown for admin alerts | `30` |
 | `ADMIN_PHONE_NUMBER` | Bootstrap phone number auto-promoted to admin on signup | defaults to `ADMIN_NUMBER` |
 | `ADMIN_NUMBER` | Legacy fallback SMS recipient if no admin accounts exist yet | optional |
 | `MIN_ORDER` | Minimum order amount in GHS | `549` |

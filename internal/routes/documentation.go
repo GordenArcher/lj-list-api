@@ -406,12 +406,14 @@ func buildAPIDocumentation() models.APIResponse {
 				Response: map[string]any{
 					"categories": []map[string]any{
 						{
-							"id":   "11111111-1111-1111-1111-111111111111",
-							"name": "Rice, Spaghetti & Grains",
+							"id":     "11111111-1111-1111-1111-111111111111",
+							"name":   "Rice, Spaghetti & Grains",
+							"active": true,
 						},
 						{
-							"id":   "22222222-2222-2222-2222-222222222222",
-							"name": "Cooking Oil",
+							"id":     "22222222-2222-2222-2222-222222222222",
+							"name":   "Cooking Oil",
+							"active": true,
 						},
 					},
 				},
@@ -450,11 +452,12 @@ func buildAPIDocumentation() models.APIResponse {
 			{
 				Method:      http.MethodPost,
 				Path:        "/api/v1/applications",
-				Description: "Submit a new grocery application. Frontend cart items send product_id and quantity; product_id may be the legacy numeric ID from App.jsx or the product UUID. package_type is 'fixed' for the predefined bundles or 'custom' for a cart built from products. Cart total must exceed GHC 549 (MIN_ORDER config). mandate_number is always required. staff_number, institution, and ghana_card_number are resolved from the request first, then from the authenticated user's profile if omitted.",
+				Description: "Submit a new grocery application. Frontend cart items send product_id and quantity; product_id may be the legacy numeric ID from App.jsx or the product UUID. package_type is 'fixed', 'provisions', 'detergents', or 'custom'. For predefined packages, send package_id from /api/v1/packages; the backend looks up the active package and stores its current name and price. package_name is accepted only as a backward-compatible fallback. Cart total must exceed GHC 549 (MIN_ORDER config). mandate_number is always required. staff_number, institution, and ghana_card_number are resolved from the request first, then from the authenticated user's profile if omitted.",
 				Auth:        true,
 				Request: map[string]any{
-					"package_type": "string ('fixed' or 'custom')",
-					"package_name": "string (required for fixed packages, e.g. 'Abusua Asomdwee')",
+					"package_type": "string ('fixed', 'provisions', 'detergents', or 'custom')",
+					"package_id":   "string (required for predefined packages, package id from /api/v1/packages, e.g. 'abusua', 'maakye', or 'mawohonte')",
+					"package_name": "string (optional legacy fallback for predefined packages)",
 					"cart_items": []map[string]any{
 						{
 							"product_id": "string (required, legacy numeric ID or product UUID)",
@@ -470,12 +473,9 @@ func buildAPIDocumentation() models.APIResponse {
   -H "Content-Type: application/json" \
   -b cookies.txt \
   -d '{
-    "package_type":"custom",
-    "cart_items":[
-      {"product_id":"101","quantity":2},
-      {"product_id":"402","quantity":5}
-    ],
-    "staff_number":"GS123456",
+    "package_type":"fixed",
+    "package_id":"abusua",
+	"staff_number":"GS123456",
     "mandate_number":"MND-001",
     "institution":"Ghana Health Service",
     "ghana_card_number":"GHA-000-0000-0"
@@ -758,10 +758,10 @@ func buildAPIDocumentation() models.APIResponse {
 			{
 				Method:      http.MethodDelete,
 				Path:        "/api/v1/admin/categories/:id",
-				Description: "Deactivate a category (admin only). If products already use it, the category is deactivated instead of being removed.",
+				Description: "Delete a category (admin only). If products already use it, the category is deactivated instead of being removed.",
 				Auth:        true,
 				AdminOnly:   true,
-				ResponseSuccess: models.NewSuccessResponse("req-abc123", "Category deactivated successfully", map[string]any{
+				ResponseSuccess: models.NewSuccessResponse("req-abc123", "Category had products, so it was deactivated instead of being deleted", map[string]any{
 					"category": map[string]any{
 						"id":         "11111111-1111-1111-1111-111111111111",
 						"name":       "Rice, Spaghetti & Grains",
@@ -769,7 +769,9 @@ func buildAPIDocumentation() models.APIResponse {
 						"active":     false,
 					},
 					"deactivated":  true,
+					"deleted":      false,
 					"soft_deleted": true,
+					"message":      "Category had products, so it was deactivated instead of being deleted",
 				}),
 				Example: `curl -X DELETE http://localhost:8080/api/v1/admin/categories/11111111-1111-1111-1111-111111111111 -b cookies.txt`,
 			},
@@ -1450,6 +1452,45 @@ func buildAPIDocumentation() models.APIResponse {
   -H "Content-Type: application/json" \
   -b cookies.txt \
   -d '{"status":"approved"}'`,
+			},
+			{
+				Method:      http.MethodGet,
+				Path:        "/api/v1/admin/applications/:id",
+				Description: "Get a single application by ID for admin review. Admins can fetch any customer's application.",
+				Auth:        true,
+				AdminOnly:   true,
+				Response: map[string]any{
+					"id":      "550e8400-e29b-41d4-a716-446655440010",
+					"user_id": "550e8400-e29b-41d4-a716-446655440000",
+					"customer": map[string]any{
+						"id":           "550e8400-e29b-41d4-a716-446655440000",
+						"display_name": "Kwame",
+						"phone_number": "+233240000000",
+						"role":         "customer",
+					},
+					"package_type": "custom",
+					"cart_items": []map[string]any{
+						{
+							"product_id": "550e8400-e29b-41d4-a716-446655440001",
+							"name":       "Royal Aroma Rice 5kg",
+							"image_url":  "https://res.cloudinary.com/demo/image/upload/v1/rice.jpg",
+							"price":      120,
+							"quantity":   2,
+							"subtotal":   240,
+						},
+					},
+					"total_amount":      650,
+					"monthly_amount":    217,
+					"status":            "pending",
+					"staff_number":      "GS123456",
+					"mandate_number":    "MND-001",
+					"institution":       "Ghana Health Service",
+					"ghana_card_number": "GHA-000-0000-0",
+					"created_at":        "2026-04-28T12:00:00Z",
+					"updated_at":        "2026-04-28T12:00:00Z",
+				},
+				Example: `curl http://localhost:8080/api/v1/admin/applications/550e8400-e29b-41d4-a716-446655440010 \
+  -b cookies.txt`,
 			},
 			{
 				Method:      http.MethodGet,

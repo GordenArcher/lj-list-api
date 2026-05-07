@@ -2,6 +2,7 @@ package handlers
 
 import (
 	"net/http"
+	"strings"
 
 	"github.com/GordenArcher/lj-list-api/internal/services"
 	"github.com/GordenArcher/lj-list-api/internal/utils"
@@ -22,6 +23,7 @@ func NewApplicationHandler(applicationService *services.ApplicationService, smsS
 
 type submitApplicationRequest struct {
 	PackageType     string                   `json:"package_type"`
+	PackageID       string                   `json:"package_id"`
 	PackageName     string                   `json:"package_name"`
 	CartItems       []services.CartItemInput `json:"cart_items"`
 	StaffNumber     string                   `json:"staff_number"`
@@ -41,11 +43,11 @@ func (h *ApplicationHandler) Create(c *gin.Context) {
 
 	errs := make(map[string][]string)
 
-	if req.PackageType != "fixed" && req.PackageType != "custom" {
-		errs["package_type"] = []string{"must be 'fixed' or 'custom'"}
+	if !isValidApplicationPackageType(req.PackageType) {
+		errs["package_type"] = []string{"must be 'fixed', 'provisions', 'detergents', or 'custom'"}
 	}
-	if req.PackageType == "fixed" && req.PackageName == "" {
-		errs["package_name"] = []string{"required for fixed packages"}
+	if req.PackageType != "custom" && req.PackageID == "" && req.PackageName == "" {
+		errs["package_id"] = []string{"required for predefined packages"}
 	}
 	if !utils.ValidateRequired(req.MandateNumber) {
 		errs["mandate_number"] = []string{"required"}
@@ -62,6 +64,7 @@ func (h *ApplicationHandler) Create(c *gin.Context) {
 		c.Request.Context(),
 		userID,
 		req.PackageType,
+		req.PackageID,
 		req.PackageName,
 		req.CartItems,
 		req.StaffNumber,
@@ -76,6 +79,15 @@ func (h *ApplicationHandler) Create(c *gin.Context) {
 
 	h.smsService.NotifyAdminNewApplication(c.Request.Context(), userID, app)
 	utils.Success(c, http.StatusCreated, "Application submitted successfully", app)
+}
+
+func isValidApplicationPackageType(packageType string) bool {
+	switch strings.ToLower(strings.TrimSpace(packageType)) {
+	case "fixed", "provisions", "detergents", "detergent", "custom":
+		return true
+	default:
+		return false
+	}
 }
 
 func (h *ApplicationHandler) List(c *gin.Context) {

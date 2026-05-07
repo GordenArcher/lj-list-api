@@ -142,6 +142,32 @@ func (s *SMSService) NotifyAdminNewMessage(ctx context.Context, senderID, sender
 	}
 }
 
+func (s *SMSService) NotifyAdminMessageSummary(ctx context.Context, senderID string, messageCount int, latestContent string) {
+	if messageCount <= 1 {
+		s.NotifyAdminNewMessage(ctx, senderID, "customer", latestContent)
+		return
+	}
+
+	admins := s.adminRecipients(ctx)
+	if len(admins) == 0 {
+		log.Printf("SMS skipped for customer message summary from %s: no admin recipients are configured", senderID)
+		return
+	}
+
+	customerName := s.resolveUserName(ctx, senderID, "A customer")
+	preview := smsPreview(latestContent, 100)
+	for _, admin := range admins {
+		message := fmt.Sprintf(
+			"Hello %s, %s sent %d new LJ-List chat messages. Latest: \"%s\". Please reply in the dashboard.",
+			bestDisplayName(&admin, "Admin"),
+			customerName,
+			messageCount,
+			preview,
+		)
+		s.SendNotification(admin.PhoneNumber, message)
+	}
+}
+
 // send validates configuration, prepares the exact Hubtel quick-send URL,
 // and then runs a bounded retry loop around the actual HTTP request.
 //

@@ -125,6 +125,17 @@ func (r *CategoryRepository) Deactivate(ctx context.Context, id string) error {
 	return nil
 }
 
+func (r *CategoryRepository) Delete(ctx context.Context, id string) error {
+	_, err := r.pool.Exec(ctx, `
+		DELETE FROM categories
+		WHERE id = $1
+	`, id)
+	if err != nil {
+		return fmt.Errorf("delete category: %w", err)
+	}
+	return nil
+}
+
 func (r *CategoryRepository) CountProductsByCategoryID(ctx context.Context, categoryID string) (int, error) {
 	var count int
 	if err := r.pool.QueryRow(ctx, `SELECT COUNT(*) FROM products WHERE category_id = $1`, categoryID).Scan(&count); err != nil {
