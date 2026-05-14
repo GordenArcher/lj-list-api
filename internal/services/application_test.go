@@ -418,7 +418,7 @@ func TestApplicationServiceSubmitAcceptsFixedPackageID(t *testing.T) {
 		t.Fatalf("Submit returned error: %v", err)
 	}
 
-	if app == nil || app.PackageName != "Abusua Asomdwee" || app.TotalAmount != 930 {
+	if app == nil || app.PackageID != "abusua" || app.PackageName != "Abusua Asomdwee" || app.TotalAmount != 930 {
 		t.Fatalf("unexpected app result: %#v", app)
 	}
 }
@@ -492,7 +492,7 @@ func TestApplicationServiceSubmitAcceptsDepartmentPackageID(t *testing.T) {
 				t.Fatalf("Submit returned error: %v", err)
 			}
 
-			if app == nil || app.PackageType != tc.packageType || app.PackageName != tc.packageName || app.TotalAmount != tc.price {
+			if app == nil || app.PackageType != tc.packageType || app.PackageID != tc.packageID || app.PackageName != tc.packageName || app.TotalAmount != tc.price {
 				t.Fatalf("unexpected app result: %#v", app)
 			}
 		})

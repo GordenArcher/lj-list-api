@@ -564,6 +564,7 @@ Request body:
 ```json
 {
   "package_type": "custom",
+  "package_id": "",
   "package_name": "",
   "cart_items": [
     { "product_id": "uuid", "quantity": 2 },
@@ -580,7 +581,7 @@ Request body:
 `ghana_card_number` may be omitted if they already exist on the authenticated
 user profile; the API will fall back to those profile values.
 
-Success `201` data: full `application` object (`id`, `user_id`, `package_type`, `cart_items`, `total_amount`, `monthly_amount`, `status`, `staff_number`, `mandate_number`, `institution`, `ghana_card_number`, `created_at`, `updated_at`).
+Success `201` data: full `application` object (`id`, `user_id`, `package_type`, `package_id`, `package_name`, `cart_items`, `total_amount`, `monthly_amount`, `status`, `staff_number`, `mandate_number`, `institution`, `ghana_card_number`, `created_at`, `updated_at`).
 
 ### GET `/applications`
 
@@ -746,6 +747,7 @@ Success `200` data:
       "role": "customer"
       },
       "package_type": "custom",
+      "package_id": "",
       "package_name": "",
       "cart_items": [],
       "total_amount": 650,

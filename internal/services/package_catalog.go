@@ -30,22 +30,29 @@ type packageRepository interface {
 	CreateFixed(ctx context.Context, pkg *models.FixedPackage, sortOrder int) (*models.FixedPackage, error)
 	UpdateFixed(ctx context.Context, id string, pkg *models.FixedPackage, sortOrder int) (*models.FixedPackage, error)
 	DeleteFixed(ctx context.Context, id string) error
+	ReactivateFixed(ctx context.Context, id string) (*models.FixedPackage, error)
 	ListDepartment(ctx context.Context, kind string, includeInactive bool) ([]models.SimplePackage, error)
 	FindDepartmentByID(ctx context.Context, kind, id string, includeInactive bool) (*models.SimplePackage, error)
 	CreateDepartment(ctx context.Context, kind string, pkg *models.SimplePackage, sortOrder int) (*models.SimplePackage, error)
 	UpdateDepartment(ctx context.Context, id, kind string, pkg *models.SimplePackage, sortOrder int) (*models.SimplePackage, error)
 	DeleteDepartment(ctx context.Context, id string) error
+	ReactivateDepartment(ctx context.Context, id, kind string) (*models.SimplePackage, error)
+}
+
+type packageApplicationRepository interface {
+	CountByFixedPackage(ctx context.Context, packageID, packageName string) (int, error)
 }
 
 type PackageService struct {
 	productRepo      packageProductRepository
 	productImageRepo packageProductImageRepository
 	packageRepo      packageRepository
+	applicationRepo  packageApplicationRepository
 	cfg              config.Config
 }
 
-func NewPackageService(productRepo *repositories.ProductRepository, productImageRepo *repositories.ProductImageRepository, packageRepo *repositories.PackageRepository, cfg config.Config) *PackageService {
-	return &PackageService{productRepo: productRepo, productImageRepo: productImageRepo, packageRepo: packageRepo, cfg: cfg}
+func NewPackageService(productRepo *repositories.ProductRepository, productImageRepo *repositories.ProductImageRepository, packageRepo *repositories.PackageRepository, applicationRepo *repositories.ApplicationRepository, cfg config.Config) *PackageService {
+	return &PackageService{productRepo: productRepo, productImageRepo: productImageRepo, packageRepo: packageRepo, applicationRepo: applicationRepo, cfg: cfg}
 }
 
 func (s *PackageService) GetCatalog(ctx context.Context) (*models.PackageCatalog, error) {
@@ -185,6 +192,22 @@ func (s *PackageService) UpdateFixedPackage(ctx context.Context, id string, pkg 
 		return nil, err
 	}
 
+	if fixedPackageItemsChanged(current.Items, normalized.Items) {
+		if s.applicationRepo == nil {
+			return nil, fmt.Errorf("application repository not configured")
+		}
+
+		count, err := s.applicationRepo.CountByFixedPackage(ctx, current.ID, current.Name)
+		if err != nil {
+			return nil, err
+		}
+		if count > 0 {
+			return nil, apperrors.New(apperrors.KindConflict, "Fixed package items cannot be changed after applications have been submitted", map[string][]string{
+				"items": {"this fixed package is already used by one or more applications"},
+			})
+		}
+	}
+
 	updated, err := s.packageRepo.UpdateFixed(ctx, current.ID, &normalized, current.SortOrder)
 	if err != nil {
 		return nil, err
@@ -193,7 +216,28 @@ func (s *PackageService) UpdateFixedPackage(ctx context.Context, id string, pkg 
 }
 
 func (s *PackageService) DeleteFixedPackage(ctx context.Context, id string) error {
-	return s.packageRepo.DeleteFixed(ctx, strings.TrimSpace(id))
+	if err := s.packageRepo.DeleteFixed(ctx, strings.TrimSpace(id)); err != nil {
+		if errors.Is(err, pgx.ErrNoRows) {
+			return apperrors.New(apperrors.KindNotFound, "Fixed package not found", map[string][]string{
+				"id": {"unknown fixed package"},
+			})
+		}
+		return err
+	}
+	return nil
+}
+
+func (s *PackageService) ReactivateFixedPackage(ctx context.Context, id string) (*models.FixedPackage, error) {
+	pkg, err := s.packageRepo.ReactivateFixed(ctx, strings.TrimSpace(id))
+	if err != nil {
+		if errors.Is(err, pgx.ErrNoRows) {
+			return nil, apperrors.New(apperrors.KindNotFound, "Fixed package not found", map[string][]string{
+				"id": {"unknown fixed package"},
+			})
+		}
+		return nil, err
+	}
+	return s.hydrateFixedPackage(ctx, pkg)
 }
 
 func (s *PackageService) GetDepartmentPackage(ctx context.Context, kind, id string, includeInactive bool) (*models.SimplePackage, error) {
@@ -277,7 +321,33 @@ func (s *PackageService) UpdateDepartmentPackage(ctx context.Context, kind, id s
 }
 
 func (s *PackageService) DeleteDepartmentPackage(ctx context.Context, id string) error {
-	return s.packageRepo.DeleteDepartment(ctx, strings.TrimSpace(id))
+	if err := s.packageRepo.DeleteDepartment(ctx, strings.TrimSpace(id)); err != nil {
+		if errors.Is(err, pgx.ErrNoRows) {
+			return apperrors.New(apperrors.KindNotFound, "Department package not found", map[string][]string{
+				"id": {"unknown department package"},
+			})
+		}
+		return err
+	}
+	return nil
+}
+
+func (s *PackageService) ReactivateDepartmentPackage(ctx context.Context, kind, id string) (*models.SimplePackage, error) {
+	kind, err := normalizePackageKind(kind)
+	if err != nil {
+		return nil, err
+	}
+
+	pkg, err := s.packageRepo.ReactivateDepartment(ctx, strings.TrimSpace(id), kind)
+	if err != nil {
+		if errors.Is(err, pgx.ErrNoRows) {
+			return nil, apperrors.New(apperrors.KindNotFound, "Department package not found", map[string][]string{
+				"id": {"unknown department package"},
+			})
+		}
+		return nil, err
+	}
+	return pkg, nil
 }
 
 func (s *PackageService) hydrateFixedPackages(ctx context.Context, packages []models.FixedPackage) ([]models.FixedPackage, error) {
@@ -436,4 +506,34 @@ func unmarshalItems(data []byte) ([]models.PackageItem, error) {
 		return nil, err
 	}
 	return items, nil
+}
+
+func fixedPackageItemsChanged(current, next []models.PackageItem) bool {
+	if len(current) != len(next) {
+		return true
+	}
+
+	currentCounts := make(map[string]int, len(current))
+	for _, item := range current {
+		currentCounts[fixedPackageItemKey(item)]++
+	}
+
+	for _, item := range next {
+		key := fixedPackageItemKey(item)
+		if currentCounts[key] == 0 {
+			return true
+		}
+		currentCounts[key]--
+	}
+
+	return false
+}
+
+func fixedPackageItemKey(item models.PackageItem) string {
+	return strings.Join([]string{
+		strings.TrimSpace(item.ProductID),
+		strconv.Itoa(item.Qty),
+		strings.TrimSpace(item.Label),
+		strings.TrimSpace(item.Emoji),
+	}, "\x00")
 }

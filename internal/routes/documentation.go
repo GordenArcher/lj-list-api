@@ -452,7 +452,7 @@ func buildAPIDocumentation() models.APIResponse {
 			{
 				Method:      http.MethodPost,
 				Path:        "/api/v1/applications",
-				Description: "Submit a new grocery application. Frontend cart items send product_id and quantity; product_id may be the legacy numeric ID from App.jsx or the product UUID. package_type is 'fixed', 'provisions', 'detergents', or 'custom'. For predefined packages, send package_id from /api/v1/packages; the backend looks up the active package and stores its current name and price. package_name is accepted only as a backward-compatible fallback. Cart total must exceed GHC 549 (MIN_ORDER config). mandate_number is always required. staff_number, institution, and ghana_card_number are resolved from the request first, then from the authenticated user's profile if omitted.",
+				Description: "Submit a new grocery application. Frontend cart items send product_id and quantity; product_id may be the legacy numeric ID from App.jsx or the product UUID. package_type is 'fixed', 'provisions', 'detergents', or 'custom'. For predefined packages, send package_id from /api/v1/packages; the backend looks up the active package and stores its current id, name, and price. package_name is accepted only as a backward-compatible fallback. Cart total must exceed GHC 549 (MIN_ORDER config). mandate_number is always required. staff_number, institution, and ghana_card_number are resolved from the request first, then from the authenticated user's profile if omitted.",
 				Auth:        true,
 				Request: map[string]any{
 					"package_type": "string ('fixed', 'provisions', 'detergents', or 'custom')",
@@ -496,6 +496,7 @@ func buildAPIDocumentation() models.APIResponse {
 							"id":           "550e8400-e29b-41d4-a716-446655440010",
 							"user_id":      "550e8400-e29b-41d4-a716-446655440000",
 							"package_type": "custom",
+							"package_id":   "",
 							"cart_items": []map[string]any{
 								{
 									"product_id": "550e8400-e29b-41d4-a716-446655440001",
@@ -1096,6 +1097,7 @@ func buildAPIDocumentation() models.APIResponse {
 							"tag":          "Starter",
 							"popular":      false,
 							"rice_options": "Ginny Viet · Ginny Gold · Everest Viet",
+							"active":       true,
 							"items": []map[string]any{
 								{
 									"product_id": "prod-113",
@@ -1134,6 +1136,7 @@ func buildAPIDocumentation() models.APIResponse {
 					"tag":          "Starter",
 					"popular":      false,
 					"rice_options": "Ginny Viet · Ginny Gold · Everest Viet",
+					"active":       true,
 					"items":        []map[string]any{},
 				},
 				Example: `curl http://localhost:8080/api/v1/admin/packages/fixed/abusua -b cookies.txt`,
@@ -1172,6 +1175,7 @@ func buildAPIDocumentation() models.APIResponse {
 					"tag":          "Custom",
 					"popular":      false,
 					"rice_options": "",
+					"active":       true,
 					"items":        []map[string]any{},
 				}),
 				Example: `curl -X POST http://localhost:8080/api/v1/admin/packages/fixed -b cookies.txt -H "Content-Type: application/json" -d '{
@@ -1228,6 +1232,7 @@ func buildAPIDocumentation() models.APIResponse {
 					"tag":          "Starter",
 					"popular":      false,
 					"rice_options": "Ginny Viet · Ginny Gold · Everest Viet",
+					"active":       true,
 					"items":        []map[string]any{},
 				}),
 				Example: `curl -X PATCH http://localhost:8080/api/v1/admin/packages/fixed/abusua -b cookies.txt`,
@@ -1248,10 +1253,11 @@ func buildAPIDocumentation() models.APIResponse {
 				Auth:        true,
 				AdminOnly:   true,
 				Response: map[string]any{
-					"id":    "maakye",
-					"name":  "Maakye",
-					"price": 250,
-					"items": "1 Milo tin or 2 strips of 20g Milo",
+					"id":     "maakye",
+					"name":   "Maakye",
+					"price":  250,
+					"items":  "1 Milo tin or 2 strips of 20g Milo",
+					"active": true,
 				},
 				Example: `curl http://localhost:8080/api/v1/admin/packages/provisions/maakye -b cookies.txt`,
 			},
@@ -1268,10 +1274,11 @@ func buildAPIDocumentation() models.APIResponse {
 					"items": "string (required, human-readable package contents)",
 				},
 				ResponseSuccess: models.NewSuccessResponse("req-abc123", "Package created successfully", map[string]any{
-					"id":    "maakye",
-					"name":  "Maakye",
-					"price": 250,
-					"items": "1 Milo tin or 2 strips of 20g Milo",
+					"id":     "maakye",
+					"name":   "Maakye",
+					"price":  250,
+					"items":  "1 Milo tin or 2 strips of 20g Milo",
+					"active": true,
 				}),
 				Example: `curl -X POST http://localhost:8080/api/v1/admin/packages/provisions -b cookies.txt -H "Content-Type: application/json" -d '{
   "id":"maakye",
@@ -1293,10 +1300,11 @@ func buildAPIDocumentation() models.APIResponse {
 					"items": "string (optional)",
 				},
 				ResponseSuccess: models.NewSuccessResponse("req-abc123", "Package updated successfully", map[string]any{
-					"id":    "maakye",
-					"name":  "Maakye",
-					"price": 250,
-					"items": "1 Milo tin or 2 strips of 20g Milo",
+					"id":     "maakye",
+					"name":   "Maakye",
+					"price":  250,
+					"items":  "1 Milo tin or 2 strips of 20g Milo",
+					"active": true,
 				}),
 				Example: `curl -X PATCH http://localhost:8080/api/v1/admin/packages/provisions/maakye -b cookies.txt -H "Content-Type: application/json" -d '{
   "price":350,
@@ -1319,10 +1327,11 @@ func buildAPIDocumentation() models.APIResponse {
 				Auth:        true,
 				AdminOnly:   true,
 				Response: map[string]any{
-					"id":    "mawohonte",
-					"name":  "Ma Wo Ho Nte",
-					"price": 270,
-					"items": "Madar / Kleesoft 400g (¼ Box)",
+					"id":     "mawohonte",
+					"name":   "Ma Wo Ho Nte",
+					"price":  270,
+					"items":  "Madar / Kleesoft 400g (¼ Box)",
+					"active": true,
 				},
 				Example: `curl http://localhost:8080/api/v1/admin/packages/detergents/mawohonte -b cookies.txt`,
 			},
@@ -1339,10 +1348,11 @@ func buildAPIDocumentation() models.APIResponse {
 					"items": "string (required, human-readable package contents)",
 				},
 				ResponseSuccess: models.NewSuccessResponse("req-abc123", "Package created successfully", map[string]any{
-					"id":    "mawohonte",
-					"name":  "Ma Wo Ho Nte",
-					"price": 270,
-					"items": "Madar / Kleesoft 400g (¼ Box)",
+					"id":     "mawohonte",
+					"name":   "Ma Wo Ho Nte",
+					"price":  270,
+					"items":  "Madar / Kleesoft 400g (¼ Box)",
+					"active": true,
 				}),
 				Example: `curl -X POST http://localhost:8080/api/v1/admin/packages/detergents -b cookies.txt -H "Content-Type: application/json" -d '{
   "id":"mawohonte",
@@ -1406,6 +1416,7 @@ func buildAPIDocumentation() models.APIResponse {
 								"role":         "customer",
 							},
 							"package_type": "custom",
+							"package_id":   "",
 							"cart_items": []map[string]any{
 								{
 									"product_id": "550e8400-e29b-41d4-a716-446655440001",
@@ -1469,6 +1480,7 @@ func buildAPIDocumentation() models.APIResponse {
 						"role":         "customer",
 					},
 					"package_type": "custom",
+					"package_id":   "",
 					"cart_items": []map[string]any{
 						{
 							"product_id": "550e8400-e29b-41d4-a716-446655440001",

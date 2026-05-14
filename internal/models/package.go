@@ -24,6 +24,7 @@ type FixedPackage struct {
 	Popular     bool          `json:"popular"`
 	RiceOptions string        `json:"rice_options,omitempty"`
 	Items       []PackageItem `json:"items"`
+	Active      bool          `json:"active"`
 }
 
 // SimplePackage is used for the Provisions and Detergents department bundles.
@@ -33,6 +34,7 @@ type SimplePackage struct {
 	Name      string `json:"name"`
 	Price     int    `json:"price"`
 	Items     string `json:"items"`
+	Active    bool   `json:"active"`
 }
 
 // PackageCatalog is the top-level response for the package endpoints.

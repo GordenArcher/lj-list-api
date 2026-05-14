@@ -29,13 +29,15 @@ type ApplicationCustomer struct {
 
 // Application represents a customer's grocery order request. PackageType is
 // "fixed", "provisions", "detergents", or "custom". For predefined packages,
-// PackageName holds the resolved package name and CartItems is empty. For
-// custom packages, CartItems contains the line items and PackageName is empty.
+// PackageID and PackageName hold the resolved package snapshot and CartItems
+// is empty. For custom packages, CartItems contains the line items and
+// PackageID/PackageName are empty.
 type Application struct {
 	ID              string               `json:"id"`
 	UserID          string               `json:"user_id"`
 	Customer        *ApplicationCustomer `json:"customer,omitempty"`
 	PackageType     string               `json:"package_type"` // "fixed" or "custom"
+	PackageID       string               `json:"package_id,omitempty"`
 	PackageName     string               `json:"package_name,omitempty"`
 	CartItems       []CartItem           `json:"cart_items,omitempty"`
 	TotalAmount     int                  `json:"total_amount"`

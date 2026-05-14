@@ -6,6 +6,7 @@ import (
 	"fmt"
 
 	"github.com/GordenArcher/lj-list-api/internal/models"
+	"github.com/jackc/pgx/v5"
 	"github.com/jackc/pgx/v5/pgxpool"
 )
 
@@ -38,10 +39,9 @@ func (r *PackageRepository) ListFixed(ctx context.Context, includeInactive bool)
 	for rows.Next() {
 		var pkg models.FixedPackage
 		var itemsBytes []byte
-		var active bool
 		var sortOrder int
 		if err := rows.Scan(
-			&pkg.ID, &sortOrder, &pkg.Name, &pkg.Tagline, &pkg.Price, &pkg.Monthly, &pkg.Tag, &pkg.Popular, &pkg.RiceOptions, &itemsBytes, &active,
+			&pkg.ID, &sortOrder, &pkg.Name, &pkg.Tagline, &pkg.Price, &pkg.Monthly, &pkg.Tag, &pkg.Popular, &pkg.RiceOptions, &itemsBytes, &pkg.Active,
 		); err != nil {
 			return nil, fmt.Errorf("scan fixed package: %w", err)
 		}
@@ -71,10 +71,9 @@ func (r *PackageRepository) FindFixedByID(ctx context.Context, id string, includ
 	row := r.pool.QueryRow(ctx, query, args...)
 	var pkg models.FixedPackage
 	var itemsBytes []byte
-	var active bool
 	var sortOrder int
 	if err := row.Scan(
-		&pkg.ID, &sortOrder, &pkg.Name, &pkg.Tagline, &pkg.Price, &pkg.Monthly, &pkg.Tag, &pkg.Popular, &pkg.RiceOptions, &itemsBytes, &active,
+		&pkg.ID, &sortOrder, &pkg.Name, &pkg.Tagline, &pkg.Price, &pkg.Monthly, &pkg.Tag, &pkg.Popular, &pkg.RiceOptions, &itemsBytes, &pkg.Active,
 	); err != nil {
 		return nil, fmt.Errorf("scan fixed package: %w", err)
 	}
@@ -99,10 +98,9 @@ func (r *PackageRepository) FindFixedByName(ctx context.Context, name string, in
 	row := r.pool.QueryRow(ctx, query, args...)
 	var pkg models.FixedPackage
 	var itemsBytes []byte
-	var active bool
 	var sortOrder int
 	if err := row.Scan(
-		&pkg.ID, &sortOrder, &pkg.Name, &pkg.Tagline, &pkg.Price, &pkg.Monthly, &pkg.Tag, &pkg.Popular, &pkg.RiceOptions, &itemsBytes, &active,
+		&pkg.ID, &sortOrder, &pkg.Name, &pkg.Tagline, &pkg.Price, &pkg.Monthly, &pkg.Tag, &pkg.Popular, &pkg.RiceOptions, &itemsBytes, &pkg.Active,
 	); err != nil {
 		return nil, fmt.Errorf("scan fixed package: %w", err)
 	}
@@ -127,11 +125,10 @@ func (r *PackageRepository) CreateFixed(ctx context.Context, pkg *models.FixedPa
 
 	var result models.FixedPackage
 	var itemsBytes []byte
-	var active bool
 	err = r.pool.QueryRow(ctx, query,
 		pkg.ID, sortOrder, pkg.Name, pkg.Tagline, pkg.Price, pkg.Monthly, pkg.Tag, pkg.Popular, pkg.RiceOptions, itemsJSON,
 	).Scan(
-		&result.ID, &sortOrder, &result.Name, &result.Tagline, &result.Price, &result.Monthly, &result.Tag, &result.Popular, &result.RiceOptions, &itemsBytes, &active,
+		&result.ID, &sortOrder, &result.Name, &result.Tagline, &result.Price, &result.Monthly, &result.Tag, &result.Popular, &result.RiceOptions, &itemsBytes, &result.Active,
 	)
 	if err != nil {
 		return nil, fmt.Errorf("insert fixed package: %w", err)
@@ -168,11 +165,10 @@ func (r *PackageRepository) UpdateFixed(ctx context.Context, id string, pkg *mod
 
 	var result models.FixedPackage
 	var itemsBytes []byte
-	var active bool
 	err = r.pool.QueryRow(ctx, query,
 		id, sortOrder, pkg.Name, pkg.Tagline, pkg.Price, pkg.Monthly, pkg.Tag, pkg.Popular, pkg.RiceOptions, itemsJSON,
 	).Scan(
-		&result.ID, &sortOrder, &result.Name, &result.Tagline, &result.Price, &result.Monthly, &result.Tag, &result.Popular, &result.RiceOptions, &itemsBytes, &active,
+		&result.ID, &sortOrder, &result.Name, &result.Tagline, &result.Price, &result.Monthly, &result.Tag, &result.Popular, &result.RiceOptions, &itemsBytes, &result.Active,
 	)
 	if err != nil {
 		return nil, fmt.Errorf("update fixed package: %w", err)
@@ -186,7 +182,7 @@ func (r *PackageRepository) UpdateFixed(ctx context.Context, id string, pkg *mod
 }
 
 func (r *PackageRepository) DeleteFixed(ctx context.Context, id string) error {
-	_, err := r.pool.Exec(ctx, `
+	tag, err := r.pool.Exec(ctx, `
 		UPDATE fixed_packages
 		SET active = false,
 			updated_at = NOW()
@@ -195,7 +191,36 @@ func (r *PackageRepository) DeleteFixed(ctx context.Context, id string) error {
 	if err != nil {
 		return fmt.Errorf("delete fixed package: %w", err)
 	}
+	if tag.RowsAffected() == 0 {
+		return pgx.ErrNoRows
+	}
 	return nil
+}
+
+func (r *PackageRepository) ReactivateFixed(ctx context.Context, id string) (*models.FixedPackage, error) {
+	query := `
+		UPDATE fixed_packages
+		SET active = true,
+			updated_at = NOW()
+		WHERE id = $1
+		RETURNING id, sort_order, name, tagline, price, monthly, tag, popular, rice_options, items, active
+	`
+
+	var result models.FixedPackage
+	var itemsBytes []byte
+	var sortOrder int
+	err := r.pool.QueryRow(ctx, query, id).Scan(
+		&result.ID, &sortOrder, &result.Name, &result.Tagline, &result.Price, &result.Monthly, &result.Tag, &result.Popular, &result.RiceOptions, &itemsBytes, &result.Active,
+	)
+	if err != nil {
+		return nil, fmt.Errorf("reactivate fixed package: %w", err)
+	}
+	result.SortOrder = sortOrder
+
+	if err := json.Unmarshal(itemsBytes, &result.Items); err != nil {
+		return nil, fmt.Errorf("unmarshal fixed package items: %w", err)
+	}
+	return &result, nil
 }
 
 func (r *PackageRepository) ListDepartment(ctx context.Context, kind string, includeInactive bool) ([]models.SimplePackage, error) {
@@ -221,8 +246,7 @@ func (r *PackageRepository) ListDepartment(ctx context.Context, kind string, inc
 		var pkg models.SimplePackage
 		var _kind string
 		var sortOrder int
-		var active bool
-		if err := rows.Scan(&pkg.ID, &_kind, &sortOrder, &pkg.Name, &pkg.Price, &pkg.Items, &active); err != nil {
+		if err := rows.Scan(&pkg.ID, &_kind, &sortOrder, &pkg.Name, &pkg.Price, &pkg.Items, &pkg.Active); err != nil {
 			return nil, fmt.Errorf("scan department package: %w", err)
 		}
 		pkg.SortOrder = sortOrder
@@ -248,8 +272,7 @@ func (r *PackageRepository) FindDepartmentByID(ctx context.Context, kind, id str
 	var pkg models.SimplePackage
 	var _kind string
 	var sortOrder int
-	var active bool
-	err := r.pool.QueryRow(ctx, query, args...).Scan(&pkg.ID, &_kind, &sortOrder, &pkg.Name, &pkg.Price, &pkg.Items, &active)
+	err := r.pool.QueryRow(ctx, query, args...).Scan(&pkg.ID, &_kind, &sortOrder, &pkg.Name, &pkg.Price, &pkg.Items, &pkg.Active)
 	if err != nil {
 		return nil, fmt.Errorf("find department package: %w", err)
 	}
@@ -266,9 +289,8 @@ func (r *PackageRepository) CreateDepartment(ctx context.Context, kind string, p
 
 	var result models.SimplePackage
 	var _kind string
-	var active bool
 	err := r.pool.QueryRow(ctx, query, pkg.ID, kind, sortOrder, pkg.Name, pkg.Price, pkg.Items).Scan(
-		&result.ID, &_kind, &sortOrder, &result.Name, &result.Price, &result.Items, &active,
+		&result.ID, &_kind, &sortOrder, &result.Name, &result.Price, &result.Items, &result.Active,
 	)
 	if err != nil {
 		return nil, fmt.Errorf("insert department package: %w", err)
@@ -292,9 +314,8 @@ func (r *PackageRepository) UpdateDepartment(ctx context.Context, id, kind strin
 
 	var result models.SimplePackage
 	var _kind string
-	var active bool
 	err := r.pool.QueryRow(ctx, query, id, kind, sortOrder, pkg.Name, pkg.Price, pkg.Items).Scan(
-		&result.ID, &_kind, &sortOrder, &result.Name, &result.Price, &result.Items, &active,
+		&result.ID, &_kind, &sortOrder, &result.Name, &result.Price, &result.Items, &result.Active,
 	)
 	if err != nil {
 		return nil, fmt.Errorf("update department package: %w", err)
@@ -304,7 +325,7 @@ func (r *PackageRepository) UpdateDepartment(ctx context.Context, id, kind strin
 }
 
 func (r *PackageRepository) DeleteDepartment(ctx context.Context, id string) error {
-	_, err := r.pool.Exec(ctx, `
+	tag, err := r.pool.Exec(ctx, `
 		UPDATE department_packages
 		SET active = false,
 			updated_at = NOW()
@@ -313,5 +334,30 @@ func (r *PackageRepository) DeleteDepartment(ctx context.Context, id string) err
 	if err != nil {
 		return fmt.Errorf("delete department package: %w", err)
 	}
+	if tag.RowsAffected() == 0 {
+		return pgx.ErrNoRows
+	}
 	return nil
+}
+
+func (r *PackageRepository) ReactivateDepartment(ctx context.Context, id, kind string) (*models.SimplePackage, error) {
+	query := `
+		UPDATE department_packages
+		SET active = true,
+			updated_at = NOW()
+		WHERE id = $1 AND kind = $2
+		RETURNING id, kind, sort_order, name, price, items, active
+	`
+
+	var result models.SimplePackage
+	var _kind string
+	var sortOrder int
+	err := r.pool.QueryRow(ctx, query, id, kind).Scan(
+		&result.ID, &_kind, &sortOrder, &result.Name, &result.Price, &result.Items, &result.Active,
+	)
+	if err != nil {
+		return nil, fmt.Errorf("reactivate department package: %w", err)
+	}
+	result.SortOrder = sortOrder
+	return &result, nil
 }

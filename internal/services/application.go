@@ -109,6 +109,7 @@ func (s *ApplicationService) Submit(ctx context.Context, userID, packageType, pa
 
 	var items []models.CartItem
 	var total int
+	resolvedPackageID := ""
 	resolvedPackageName := ""
 
 	if packageType == "custom" {
@@ -169,6 +170,7 @@ func (s *ApplicationService) Submit(ctx context.Context, userID, packageType, pa
 			}
 			return nil, apperrors.Wrap(apperrors.KindInternal, "Failed to resolve package", err)
 		}
+		resolvedPackageID = resolved.ID
 		resolvedPackageName = resolved.Name
 		total = resolved.TotalAmount
 	}
@@ -188,6 +190,7 @@ func (s *ApplicationService) Submit(ctx context.Context, userID, packageType, pa
 	app := &models.Application{
 		UserID:          userID,
 		PackageType:     packageType,
+		PackageID:       resolvedPackageID,
 		PackageName:     resolvedPackageName,
 		CartItems:       items,
 		TotalAmount:     total,
@@ -207,6 +210,7 @@ func (s *ApplicationService) Submit(ctx context.Context, userID, packageType, pa
 }
 
 type resolvedPackage struct {
+	ID          string
 	Name        string
 	TotalAmount int
 }
@@ -223,7 +227,7 @@ func (s *ApplicationService) resolvePredefinedPackage(ctx context.Context, packa
 			return resolvedPackage{}, fmt.Errorf("parse fixed package price: %w", err)
 		}
 
-		return resolvedPackage{Name: pkg.Name, TotalAmount: total}, nil
+		return resolvedPackage{ID: pkg.ID, Name: pkg.Name, TotalAmount: total}, nil
 	}
 
 	id := strings.TrimSpace(packageID)
@@ -239,7 +243,7 @@ func (s *ApplicationService) resolvePredefinedPackage(ctx context.Context, packa
 		return resolvedPackage{}, err
 	}
 
-	return resolvedPackage{Name: pkg.Name, TotalAmount: pkg.Price}, nil
+	return resolvedPackage{ID: pkg.ID, Name: pkg.Name, TotalAmount: pkg.Price}, nil
 }
 
 func (s *ApplicationService) resolveFixedPackage(ctx context.Context, packageID, packageName string) (*models.FixedPackage, error) {

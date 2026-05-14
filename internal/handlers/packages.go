@@ -199,6 +199,16 @@ func (h *PackageHandler) DeleteFixed(c *gin.Context) {
 	utils.Success(c, http.StatusOK, "Fixed package deactivated successfully", nil)
 }
 
+func (h *PackageHandler) ReactivateFixed(c *gin.Context) {
+	pkg, err := h.packageService.ReactivateFixedPackage(c.Request.Context(), c.Param("id"))
+	if err != nil {
+		utils.HandleError(c, err, "Failed to reactivate fixed package")
+		return
+	}
+
+	utils.Success(c, http.StatusOK, "Fixed package reactivated successfully", pkg)
+}
+
 func (h *PackageHandler) CreateProvisions(c *gin.Context) {
 	h.createDepartmentPackage(c, "provisions")
 }
@@ -216,6 +226,10 @@ func (h *PackageHandler) DeleteProvisions(c *gin.Context) {
 	utils.Success(c, http.StatusOK, "Provisions package deactivated successfully", nil)
 }
 
+func (h *PackageHandler) ReactivateProvisions(c *gin.Context) {
+	h.reactivateDepartmentPackage(c, "provisions")
+}
+
 func (h *PackageHandler) CreateDetergents(c *gin.Context) {
 	h.createDepartmentPackage(c, "detergents")
 }
@@ -231,6 +245,10 @@ func (h *PackageHandler) DeleteDetergents(c *gin.Context) {
 	}
 
 	utils.Success(c, http.StatusOK, "Detergent package deactivated successfully", nil)
+}
+
+func (h *PackageHandler) ReactivateDetergents(c *gin.Context) {
+	h.reactivateDepartmentPackage(c, "detergents")
 }
 
 func (h *PackageHandler) createDepartmentPackage(c *gin.Context, kind string) {
@@ -277,4 +295,14 @@ func (h *PackageHandler) updateDepartmentPackage(c *gin.Context, kind string) {
 	}
 
 	utils.Success(c, http.StatusOK, "Package updated successfully", pkg)
+}
+
+func (h *PackageHandler) reactivateDepartmentPackage(c *gin.Context, kind string) {
+	pkg, err := h.packageService.ReactivateDepartmentPackage(c.Request.Context(), kind, c.Param("id"))
+	if err != nil {
+		utils.HandleError(c, err, "Failed to reactivate package")
+		return
+	}
+
+	utils.Success(c, http.StatusOK, "Package reactivated successfully", pkg)
 }

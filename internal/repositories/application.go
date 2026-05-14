@@ -28,20 +28,20 @@ func (r *ApplicationRepository) Create(ctx context.Context, app *models.Applicat
 	}
 
 	query := `
-		INSERT INTO applications (user_id, package_type, package_name, cart_items, total_amount, monthly_amount, staff_number, mandate_number, institution, ghana_card_number)
-		VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10)
-		RETURNING id, user_id, package_type, package_name, cart_items, total_amount, monthly_amount, status, staff_number, mandate_number, institution, ghana_card_number, created_at, updated_at
+		INSERT INTO applications (user_id, package_type, package_id, package_name, cart_items, total_amount, monthly_amount, staff_number, mandate_number, institution, ghana_card_number)
+		VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11)
+		RETURNING id, user_id, package_type, COALESCE(package_id, ''), package_name, cart_items, total_amount, monthly_amount, status, staff_number, mandate_number, institution, ghana_card_number, created_at, updated_at
 	`
 
 	var result models.Application
 	var cartBytes []byte
 
 	err = r.pool.QueryRow(ctx, query,
-		app.UserID, app.PackageType, app.PackageName, cartJSON,
+		app.UserID, app.PackageType, app.PackageID, app.PackageName, cartJSON,
 		app.TotalAmount, app.MonthlyAmount, app.StaffNumber,
 		app.MandateNumber, app.Institution, app.GhanaCardNumber,
 	).Scan(
-		&result.ID, &result.UserID, &result.PackageType, &result.PackageName,
+		&result.ID, &result.UserID, &result.PackageType, &result.PackageID, &result.PackageName,
 		&cartBytes, &result.TotalAmount, &result.MonthlyAmount, &result.Status,
 		&result.StaffNumber, &result.MandateNumber, &result.Institution,
 		&result.GhanaCardNumber, &result.CreatedAt, &result.UpdatedAt,
@@ -61,7 +61,7 @@ func (r *ApplicationRepository) Create(ctx context.Context, app *models.Applicat
 // Use with CountByUserID to calculate pagination metadata.
 func (r *ApplicationRepository) FindByUserID(ctx context.Context, userID string, offset, limit int) ([]models.Application, error) {
 	query := `
-		SELECT id, user_id, package_type, package_name, cart_items, total_amount, monthly_amount, status, staff_number, mandate_number, institution, ghana_card_number, created_at, updated_at
+		SELECT id, user_id, package_type, COALESCE(package_id, ''), package_name, cart_items, total_amount, monthly_amount, status, staff_number, mandate_number, institution, ghana_card_number, created_at, updated_at
 		FROM applications
 		WHERE user_id = $1
 		ORDER BY created_at DESC
@@ -106,6 +106,7 @@ func (r *ApplicationRepository) FindAll(ctx context.Context, status string, offs
 				COALESCE(u.phone_number, ''),
 				u.role,
 				a.package_type,
+				COALESCE(a.package_id, ''),
 				a.package_name,
 				a.cart_items,
 				a.total_amount,
@@ -133,6 +134,7 @@ func (r *ApplicationRepository) FindAll(ctx context.Context, status string, offs
 				COALESCE(u.phone_number, ''),
 				u.role,
 				a.package_type,
+				COALESCE(a.package_id, ''),
 				a.package_name,
 				a.cart_items,
 				a.total_amount,
@@ -207,11 +209,33 @@ func (r *ApplicationRepository) CountByProductID(ctx context.Context, productID 
 	return count, nil
 }
 
+// CountByFixedPackage returns how many applications were submitted for a fixed
+// package. New rows use package_id; package_name is kept as a fallback for
+// applications created before package_id existed.
+func (r *ApplicationRepository) CountByFixedPackage(ctx context.Context, packageID, packageName string) (int, error) {
+	query := `
+		SELECT COUNT(*)
+		FROM applications
+		WHERE package_type = 'fixed'
+			AND (
+				package_id = $1
+				OR (COALESCE(package_id, '') = '' AND package_name = $2)
+			)
+	`
+
+	var count int
+	if err := r.pool.QueryRow(ctx, query, packageID, packageName).Scan(&count); err != nil {
+		return 0, fmt.Errorf("count applications by fixed package: %w", err)
+	}
+
+	return count, nil
+}
+
 // FindByID returns a single application by UUID. Returns pgx.ErrNoRows if
 // not found.
 func (r *ApplicationRepository) FindByID(ctx context.Context, id string) (*models.Application, error) {
 	query := `
-		SELECT id, user_id, package_type, package_name, cart_items, total_amount, monthly_amount, status, staff_number, mandate_number, institution, ghana_card_number, created_at, updated_at
+		SELECT id, user_id, package_type, COALESCE(package_id, ''), package_name, cart_items, total_amount, monthly_amount, status, staff_number, mandate_number, institution, ghana_card_number, created_at, updated_at
 		FROM applications
 		WHERE id = $1
 	`
@@ -220,7 +244,7 @@ func (r *ApplicationRepository) FindByID(ctx context.Context, id string) (*model
 	var cartBytes []byte
 
 	err := r.pool.QueryRow(ctx, query, id).Scan(
-		&app.ID, &app.UserID, &app.PackageType, &app.PackageName,
+		&app.ID, &app.UserID, &app.PackageType, &app.PackageID, &app.PackageName,
 		&cartBytes, &app.TotalAmount, &app.MonthlyAmount, &app.Status,
 		&app.StaffNumber, &app.MandateNumber, &app.Institution,
 		&app.GhanaCardNumber, &app.CreatedAt, &app.UpdatedAt,
@@ -243,14 +267,14 @@ func (r *ApplicationRepository) UpdateStatus(ctx context.Context, id, status str
 		UPDATE applications
 		SET status = $2, updated_at = NOW()
 		WHERE id = $1
-		RETURNING id, user_id, package_type, package_name, cart_items, total_amount, monthly_amount, status, staff_number, mandate_number, institution, ghana_card_number, created_at, updated_at
+		RETURNING id, user_id, package_type, COALESCE(package_id, ''), package_name, cart_items, total_amount, monthly_amount, status, staff_number, mandate_number, institution, ghana_card_number, created_at, updated_at
 	`
 
 	var app models.Application
 	var cartBytes []byte
 
 	err := r.pool.QueryRow(ctx, query, id, status).Scan(
-		&app.ID, &app.UserID, &app.PackageType, &app.PackageName,
+		&app.ID, &app.UserID, &app.PackageType, &app.PackageID, &app.PackageName,
 		&cartBytes, &app.TotalAmount, &app.MonthlyAmount, &app.Status,
 		&app.StaffNumber, &app.MandateNumber, &app.Institution,
 		&app.GhanaCardNumber, &app.CreatedAt, &app.UpdatedAt,
@@ -275,7 +299,7 @@ func scanApplications(rows pgx.Rows) ([]models.Application, error) {
 		var app models.Application
 		var cartBytes []byte
 		if err := rows.Scan(
-			&app.ID, &app.UserID, &app.PackageType, &app.PackageName,
+			&app.ID, &app.UserID, &app.PackageType, &app.PackageID, &app.PackageName,
 			&cartBytes, &app.TotalAmount, &app.MonthlyAmount, &app.Status,
 			&app.StaffNumber, &app.MandateNumber, &app.Institution,
 			&app.GhanaCardNumber, &app.CreatedAt, &app.UpdatedAt,
@@ -310,6 +334,7 @@ func scanApplicationsWithCustomer(rows pgx.Rows) ([]models.Application, error) {
 			&app.Customer.PhoneNumber,
 			&app.Customer.Role,
 			&app.PackageType,
+			&app.PackageID,
 			&app.PackageName,
 			&cartBytes,
 			&app.TotalAmount,
