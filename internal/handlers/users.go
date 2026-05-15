@@ -23,6 +23,10 @@ type updateProfileRequest struct {
 	StaffNumber     *string `json:"staff_number,omitempty"`
 	Institution     *string `json:"institution,omitempty"`
 	GhanaCardNumber *string `json:"ghana_card_number,omitempty"`
+	Address         *string `json:"address,omitempty"`
+	Landmark        *string `json:"landmark,omitempty"`
+	Region          *string `json:"region,omitempty"`
+	City            *string `json:"city,omitempty"`
 	Password        *string `json:"password,omitempty"`
 }
 
@@ -59,6 +63,10 @@ func (h *UserHandler) UpdateProfile(c *gin.Context) {
 		StaffNumber:     req.StaffNumber,
 		Institution:     req.Institution,
 		GhanaCardNumber: req.GhanaCardNumber,
+		Address:         req.Address,
+		Landmark:        req.Landmark,
+		Region:          req.Region,
+		City:            req.City,
 		Password:        req.Password,
 	})
 	if err != nil {
@@ -125,6 +133,10 @@ func profileUserPayload(user *models.User) gin.H {
 		"staff_number":      user.StaffNumber,
 		"institution":       user.Institution,
 		"ghana_card_number": user.GhanaCardNumber,
+		"address":           user.Address,
+		"landmark":          user.Landmark,
+		"region":            user.Region,
+		"city":              user.City,
 		"role":              user.Role,
 		"created_at":        user.CreatedAt,
 		"updated_at":        user.UpdatedAt,

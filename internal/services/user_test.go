@@ -55,6 +55,10 @@ func (r *stubUserServiceRepo) Update(ctx context.Context, id string, input repos
 		StaffNumber:     input.StaffNumber,
 		Institution:     input.Institution,
 		GhanaCardNumber: input.GhanaCardNumber,
+		Address:         input.Address,
+		Landmark:        input.Landmark,
+		Region:          input.Region,
+		City:            input.City,
 		Role:            input.Role,
 		CreatedAt:       time.Unix(1, 0).UTC(),
 		UpdatedAt:       time.Unix(2, 0).UTC(),
@@ -87,6 +91,10 @@ func TestUserServiceUpdateProfileNormalizesFields(t *testing.T) {
 			StaffNumber:     "GES-OLD-1",
 			Institution:     "GES",
 			GhanaCardNumber: "GHA-OLD-1",
+			Address:         "Old Address",
+			Landmark:        "Old Landmark",
+			Region:          "Old Region",
+			City:            "Old City",
 			Role:            "customer",
 		},
 	}
@@ -97,6 +105,10 @@ func TestUserServiceUpdateProfileNormalizesFields(t *testing.T) {
 	staffNumber := " GES-2024-0018 "
 	institution := " Ghana Education Service "
 	ghanaCardNumber := " GHA-123456789-0 "
+	address := " House 14, Mango Street "
+	landmark := " Near Shell "
+	region := " Greater Accra "
+	city := " Madina "
 	password := "password123"
 
 	user, err := service.UpdateProfile(context.Background(), "user-1", UpdateProfileInput{
@@ -105,6 +117,10 @@ func TestUserServiceUpdateProfileNormalizesFields(t *testing.T) {
 		StaffNumber:     &staffNumber,
 		Institution:     &institution,
 		GhanaCardNumber: &ghanaCardNumber,
+		Address:         &address,
+		Landmark:        &landmark,
+		Region:          &region,
+		City:            &city,
 		Password:        &password,
 	})
 	if err != nil {
@@ -125,6 +141,18 @@ func TestUserServiceUpdateProfileNormalizesFields(t *testing.T) {
 	}
 	if repo.updateInput.GhanaCardNumber != "GHA-123456789-0" {
 		t.Fatalf("unexpected Ghana Card update: %q", repo.updateInput.GhanaCardNumber)
+	}
+	if repo.updateInput.Address != "House 14, Mango Street" {
+		t.Fatalf("unexpected address update: %q", repo.updateInput.Address)
+	}
+	if repo.updateInput.Landmark != "Near Shell" {
+		t.Fatalf("unexpected landmark update: %q", repo.updateInput.Landmark)
+	}
+	if repo.updateInput.Region != "Greater Accra" {
+		t.Fatalf("unexpected region update: %q", repo.updateInput.Region)
+	}
+	if repo.updateInput.City != "Madina" {
+		t.Fatalf("unexpected city update: %q", repo.updateInput.City)
 	}
 	if repo.updateInput.PasswordHash == nil {
 		t.Fatal("expected password hash to be set")

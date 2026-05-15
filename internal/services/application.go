@@ -6,6 +6,7 @@ import (
 	"fmt"
 	"strconv"
 	"strings"
+	"time"
 
 	"github.com/GordenArcher/lj-list-api/internal/apperrors"
 	"github.com/GordenArcher/lj-list-api/internal/config"
@@ -69,7 +70,7 @@ func NewApplicationService(
 // the cart items so the application is a point-in-time snapshot. The minimum
 // order threshold is enforced here, the handler layer also checks, but
 // the service is the authoritative gate.
-func (s *ApplicationService) Submit(ctx context.Context, userID, packageType, packageID, packageName string, cartItems []CartItemInput, staffNumber, mandateNumber, institution, ghanaCardNumber string) (*models.Application, error) {
+func (s *ApplicationService) Submit(ctx context.Context, userID, packageType, packageID, packageName string, cartItems []CartItemInput, staffNumber, mandateNumber, institution, ghanaCardNumber, address, landmark, region, city, preferredDate, notes string) (*models.Application, error) {
 	packageType = normalizeApplicationPackageType(packageType)
 	if packageType == "" {
 		return nil, apperrors.New(apperrors.KindValidation, "Validation failed", map[string][]string{
@@ -89,6 +90,12 @@ func (s *ApplicationService) Submit(ctx context.Context, userID, packageType, pa
 	resolvedStaffNumber := resolveApplicationIdentityField(staffNumber, user.StaffNumber)
 	resolvedInstitution := resolveApplicationIdentityField(institution, user.Institution)
 	resolvedGhanaCardNumber := resolveApplicationIdentityField(ghanaCardNumber, user.GhanaCardNumber)
+	resolvedAddress := resolveApplicationIdentityField(address, user.Address)
+	resolvedLandmark := resolveApplicationIdentityField(landmark, user.Landmark)
+	resolvedRegion := resolveApplicationIdentityField(region, user.Region)
+	resolvedCity := resolveApplicationIdentityField(city, user.City)
+	resolvedPreferredDate := strings.TrimSpace(preferredDate)
+	resolvedNotes := strings.TrimSpace(notes)
 
 	errs := make(map[string][]string)
 	if !utils.ValidateRequired(resolvedStaffNumber) {
@@ -102,6 +109,11 @@ func (s *ApplicationService) Submit(ctx context.Context, userID, packageType, pa
 	}
 	if !utils.ValidateRequired(resolvedGhanaCardNumber) {
 		errs["ghana_card_number"] = []string{"required on the request or user profile"}
+	}
+	if resolvedPreferredDate != "" {
+		if _, err := time.Parse("2006-01-02", resolvedPreferredDate); err != nil {
+			errs["preferred_date"] = []string{"must be a valid date in YYYY-MM-DD format"}
+		}
 	}
 	if len(errs) > 0 {
 		return nil, apperrors.New(apperrors.KindValidation, "Validation failed", errs)
@@ -199,6 +211,12 @@ func (s *ApplicationService) Submit(ctx context.Context, userID, packageType, pa
 		MandateNumber:   resolvedMandateNumber,
 		Institution:     resolvedInstitution,
 		GhanaCardNumber: resolvedGhanaCardNumber,
+		Address:         resolvedAddress,
+		Landmark:        resolvedLandmark,
+		Region:          resolvedRegion,
+		City:            resolvedCity,
+		PreferredDate:   resolvedPreferredDate,
+		Notes:           resolvedNotes,
 	}
 
 	created, err := s.applicationRepo.Create(ctx, app)

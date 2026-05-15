@@ -34,6 +34,10 @@ type UpdateProfileInput struct {
 	StaffNumber     *string
 	Institution     *string
 	GhanaCardNumber *string
+	Address         *string
+	Landmark        *string
+	Region          *string
+	City            *string
 	Password        *string
 }
 
@@ -163,6 +167,10 @@ func (s *UserService) normalizeProfileUpdateInput(ctx context.Context, current *
 		StaffNumber:     current.StaffNumber,
 		Institution:     current.Institution,
 		GhanaCardNumber: current.GhanaCardNumber,
+		Address:         current.Address,
+		Landmark:        current.Landmark,
+		Region:          current.Region,
+		City:            current.City,
 		Role:            current.Role,
 	}
 
@@ -225,6 +233,46 @@ func (s *UserService) normalizeProfileUpdateInput(ctx context.Context, current *
 		}
 	}
 
+	if input.Address != nil {
+		trimmed := strings.TrimSpace(*input.Address)
+		if !utils.ValidateRequired(trimmed) {
+			errs["address"] = []string{"required"}
+		} else {
+			updateInput.Address = trimmed
+			changed = true
+		}
+	}
+
+	if input.Landmark != nil {
+		trimmed := strings.TrimSpace(*input.Landmark)
+		if !utils.ValidateRequired(trimmed) {
+			errs["landmark"] = []string{"required"}
+		} else {
+			updateInput.Landmark = trimmed
+			changed = true
+		}
+	}
+
+	if input.Region != nil {
+		trimmed := strings.TrimSpace(*input.Region)
+		if !utils.ValidateRequired(trimmed) {
+			errs["region"] = []string{"required"}
+		} else {
+			updateInput.Region = trimmed
+			changed = true
+		}
+	}
+
+	if input.City != nil {
+		trimmed := strings.TrimSpace(*input.City)
+		if !utils.ValidateRequired(trimmed) {
+			errs["city"] = []string{"required"}
+		} else {
+			updateInput.City = trimmed
+			changed = true
+		}
+	}
+
 	if input.Password != nil {
 		if !utils.ValidatePassword(*input.Password) {
 			errs["password"] = []string{"must be at least 8 characters"}
@@ -275,6 +323,10 @@ func (s *UserService) normalizeAdminUpdateInput(ctx context.Context, current *mo
 		StaffNumber:     current.StaffNumber,
 		Institution:     current.Institution,
 		GhanaCardNumber: current.GhanaCardNumber,
+		Address:         current.Address,
+		Landmark:        current.Landmark,
+		Region:          current.Region,
+		City:            current.City,
 		Role:            current.Role,
 	}
 

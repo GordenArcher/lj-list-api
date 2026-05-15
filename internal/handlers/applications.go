@@ -30,6 +30,12 @@ type submitApplicationRequest struct {
 	MandateNumber   string                   `json:"mandate_number"`
 	Institution     string                   `json:"institution"`
 	GhanaCardNumber string                   `json:"ghana_card_number"`
+	Address         string                   `json:"address"`
+	Landmark        string                   `json:"landmark"`
+	Region          string                   `json:"region"`
+	City            string                   `json:"city"`
+	PreferredDate   string                   `json:"preferred_date"`
+	Notes           string                   `json:"notes"`
 }
 
 func (h *ApplicationHandler) Create(c *gin.Context) {
@@ -71,6 +77,12 @@ func (h *ApplicationHandler) Create(c *gin.Context) {
 		req.MandateNumber,
 		req.Institution,
 		req.GhanaCardNumber,
+		req.Address,
+		req.Landmark,
+		req.Region,
+		req.City,
+		req.PreferredDate,
+		req.Notes,
 	)
 	if err != nil {
 		utils.HandleError(c, err, "Failed to submit application")

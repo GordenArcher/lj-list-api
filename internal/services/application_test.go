@@ -150,6 +150,10 @@ func TestApplicationServiceSubmitFallsBackToUserProfileIdentityFields(t *testing
 				StaffNumber:     "GES-2024-0018",
 				Institution:     "Ghana Education Service",
 				GhanaCardNumber: "GHA-123456789-0",
+				Address:         "House 14, Mango Street",
+				Landmark:        "Near Shell",
+				Region:          "Greater Accra",
+				City:            "Madina",
 			},
 		},
 		cfg: config.Config{MinOrder: 549},
@@ -164,6 +168,12 @@ func TestApplicationServiceSubmitFallsBackToUserProfileIdentityFields(t *testing
 		nil,
 		"",
 		"MND-001",
+		"",
+		"",
+		"",
+		"",
+		"",
+		"",
 		"",
 		"",
 	)
@@ -182,6 +192,18 @@ func TestApplicationServiceSubmitFallsBackToUserProfileIdentityFields(t *testing
 	}
 	if appRepo.createInput.GhanaCardNumber != "GHA-123456789-0" {
 		t.Fatalf("expected Ghana Card fallback, got %q", appRepo.createInput.GhanaCardNumber)
+	}
+	if appRepo.createInput.Address != "House 14, Mango Street" {
+		t.Fatalf("expected address fallback, got %q", appRepo.createInput.Address)
+	}
+	if appRepo.createInput.Landmark != "Near Shell" {
+		t.Fatalf("expected landmark fallback, got %q", appRepo.createInput.Landmark)
+	}
+	if appRepo.createInput.Region != "Greater Accra" {
+		t.Fatalf("expected region fallback, got %q", appRepo.createInput.Region)
+	}
+	if appRepo.createInput.City != "Madina" {
+		t.Fatalf("expected city fallback, got %q", appRepo.createInput.City)
 	}
 	if app == nil || app.ID != "app-1" {
 		t.Fatalf("unexpected created application: %#v", app)
@@ -206,6 +228,10 @@ func TestApplicationServiceSubmitPrefersRequestIdentityFields(t *testing.T) {
 				StaffNumber:     "OLD-STAFF",
 				Institution:     "Old Institution",
 				GhanaCardNumber: "OLD-CARD",
+				Address:         "Old Address",
+				Landmark:        "Old Landmark",
+				Region:          "Old Region",
+				City:            "Old City",
 			},
 		},
 		cfg: config.Config{MinOrder: 549},
@@ -222,6 +248,12 @@ func TestApplicationServiceSubmitPrefersRequestIdentityFields(t *testing.T) {
 		"MND-001",
 		"New Institution",
 		"NEW-CARD",
+		"New Address",
+		"New Landmark",
+		"New Region",
+		"New City",
+		"2026-05-22",
+		"Call before delivery",
 	)
 	if err != nil {
 		t.Fatalf("Submit returned error: %v", err)
@@ -238,6 +270,24 @@ func TestApplicationServiceSubmitPrefersRequestIdentityFields(t *testing.T) {
 	}
 	if appRepo.createInput.GhanaCardNumber != "NEW-CARD" {
 		t.Fatalf("expected request Ghana Card to win, got %q", appRepo.createInput.GhanaCardNumber)
+	}
+	if appRepo.createInput.Address != "New Address" {
+		t.Fatalf("expected request address to win, got %q", appRepo.createInput.Address)
+	}
+	if appRepo.createInput.Landmark != "New Landmark" {
+		t.Fatalf("expected request landmark to win, got %q", appRepo.createInput.Landmark)
+	}
+	if appRepo.createInput.Region != "New Region" {
+		t.Fatalf("expected request region to win, got %q", appRepo.createInput.Region)
+	}
+	if appRepo.createInput.City != "New City" {
+		t.Fatalf("expected request city to win, got %q", appRepo.createInput.City)
+	}
+	if appRepo.createInput.PreferredDate != "2026-05-22" {
+		t.Fatalf("expected preferred date, got %q", appRepo.createInput.PreferredDate)
+	}
+	if appRepo.createInput.Notes != "Call before delivery" {
+		t.Fatalf("expected notes, got %q", appRepo.createInput.Notes)
 	}
 }
 
@@ -265,9 +315,60 @@ func TestApplicationServiceSubmitRejectsMissingIdentityFieldsWhenProfileAlsoMiss
 		"MND-001",
 		"",
 		"",
+		"",
+		"",
+		"",
+		"",
+		"",
+		"",
 	)
 	if err == nil {
 		t.Fatal("expected validation error for missing identity fields")
+	}
+}
+
+func TestApplicationServiceSubmitRejectsInvalidPreferredDate(t *testing.T) {
+	t.Parallel()
+
+	service := &ApplicationService{
+		applicationRepo: &stubApplicationRepo{},
+		productRepo:     &stubApplicationProductRepo{},
+		packageRepo: &stubApplicationPackageRepo{
+			fixedByName: map[string]*models.FixedPackage{
+				"Abusua Asomdwee": &models.FixedPackage{ID: "abusua", Name: "Abusua Asomdwee", Price: "GH₵569"},
+			},
+		},
+		userRepo: &stubApplicationUserRepo{
+			user: &models.User{
+				ID:              "user-1",
+				StaffNumber:     "GES-2024-0018",
+				Institution:     "Ghana Education Service",
+				GhanaCardNumber: "GHA-123456789-0",
+			},
+		},
+		cfg: config.Config{MinOrder: 549},
+	}
+
+	_, err := service.Submit(
+		context.Background(),
+		"user-1",
+		"fixed",
+		"",
+		"Abusua Asomdwee",
+		nil,
+		"",
+		"MND-001",
+		"",
+		"",
+		"",
+		"",
+		"",
+		"",
+		"22-05-2026",
+		"",
+	)
+	if err == nil {
+		t.Fatal("expected validation error for invalid preferred date")
 	}
 }
 
@@ -323,6 +424,12 @@ func TestApplicationServiceSubmitUsesFixedPackagePricing(t *testing.T) {
 				"MND-001",
 				"",
 				"",
+				"",
+				"",
+				"",
+				"",
+				"",
+				"",
 			)
 			if err != nil {
 				t.Fatalf("Submit returned error: %v", err)
@@ -369,6 +476,12 @@ func TestApplicationServiceSubmitAcceptsFixedPackageDisplayOption(t *testing.T) 
 		"007",
 		"",
 		"",
+		"",
+		"",
+		"",
+		"",
+		"",
+		"",
 	)
 	if err != nil {
 		t.Fatalf("Submit returned error: %v", err)
@@ -411,6 +524,12 @@ func TestApplicationServiceSubmitAcceptsFixedPackageID(t *testing.T) {
 		nil,
 		"",
 		"007",
+		"",
+		"",
+		"",
+		"",
+		"",
+		"",
 		"",
 		"",
 	)
@@ -487,6 +606,12 @@ func TestApplicationServiceSubmitAcceptsDepartmentPackageID(t *testing.T) {
 				"007",
 				"",
 				"",
+				"",
+				"",
+				"",
+				"",
+				"",
+				"",
 			)
 			if err != nil {
 				t.Fatalf("Submit returned error: %v", err)
@@ -539,6 +664,12 @@ func TestApplicationServiceSubmitResolvesLegacyNumericProductIDs(t *testing.T) {
 		[]CartItemInput{{ProductID: "101", Quantity: 2}},
 		"",
 		"MND-001",
+		"",
+		"",
+		"",
+		"",
+		"",
+		"",
 		"",
 		"",
 	)

@@ -14,6 +14,10 @@ type User struct {
 	StaffNumber     string     `json:"-"`
 	Institution     string     `json:"-"`
 	GhanaCardNumber string     `json:"-"`
+	Address         string     `json:"-"`
+	Landmark        string     `json:"-"`
+	Region          string     `json:"-"`
+	City            string     `json:"-"`
 	IsActive        bool       `json:"-"`
 	OTPHash         *string    `json:"-"`
 	OTPExpiresAt    *time.Time `json:"-"`

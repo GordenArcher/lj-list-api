@@ -47,6 +47,12 @@ type Application struct {
 	MandateNumber   string               `json:"mandate_number"`
 	Institution     string               `json:"institution"`
 	GhanaCardNumber string               `json:"ghana_card_number"`
+	Address         string               `json:"address"`
+	Landmark        string               `json:"landmark"`
+	Region          string               `json:"region"`
+	City            string               `json:"city"`
+	PreferredDate   string               `json:"preferred_date,omitempty"`
+	Notes           string               `json:"notes,omitempty"`
 	CreatedAt       time.Time            `json:"created_at"`
 	UpdatedAt       time.Time            `json:"updated_at"`
 }

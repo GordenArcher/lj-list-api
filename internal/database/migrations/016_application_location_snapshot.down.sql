@@ -1,0 +1,13 @@
+ALTER TABLE applications
+    DROP COLUMN IF EXISTS notes,
+    DROP COLUMN IF EXISTS preferred_date,
+    DROP COLUMN IF EXISTS city,
+    DROP COLUMN IF EXISTS region,
+    DROP COLUMN IF EXISTS landmark,
+    DROP COLUMN IF EXISTS address;
+
+ALTER TABLE users
+    DROP COLUMN IF EXISTS city,
+    DROP COLUMN IF EXISTS region,
+    DROP COLUMN IF EXISTS landmark,
+    DROP COLUMN IF EXISTS address;

@@ -28,9 +28,9 @@ func (r *ApplicationRepository) Create(ctx context.Context, app *models.Applicat
 	}
 
 	query := `
-		INSERT INTO applications (user_id, package_type, package_id, package_name, cart_items, total_amount, monthly_amount, staff_number, mandate_number, institution, ghana_card_number)
-		VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11)
-		RETURNING id, user_id, package_type, COALESCE(package_id, ''), package_name, cart_items, total_amount, monthly_amount, status, staff_number, mandate_number, institution, ghana_card_number, created_at, updated_at
+		INSERT INTO applications (user_id, package_type, package_id, package_name, cart_items, total_amount, monthly_amount, staff_number, mandate_number, institution, ghana_card_number, address, landmark, region, city, preferred_date, notes)
+		VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12, $13, $14, $15, NULLIF($16, '')::date, NULLIF($17, ''))
+		RETURNING id, user_id, package_type, COALESCE(package_id, ''), package_name, cart_items, total_amount, monthly_amount, status, staff_number, mandate_number, institution, ghana_card_number, COALESCE(address, ''), COALESCE(landmark, ''), COALESCE(region, ''), COALESCE(city, ''), COALESCE(preferred_date::text, ''), COALESCE(notes, ''), created_at, updated_at
 	`
 
 	var result models.Application
@@ -40,11 +40,13 @@ func (r *ApplicationRepository) Create(ctx context.Context, app *models.Applicat
 		app.UserID, app.PackageType, app.PackageID, app.PackageName, cartJSON,
 		app.TotalAmount, app.MonthlyAmount, app.StaffNumber,
 		app.MandateNumber, app.Institution, app.GhanaCardNumber,
+		app.Address, app.Landmark, app.Region, app.City, app.PreferredDate, app.Notes,
 	).Scan(
 		&result.ID, &result.UserID, &result.PackageType, &result.PackageID, &result.PackageName,
 		&cartBytes, &result.TotalAmount, &result.MonthlyAmount, &result.Status,
 		&result.StaffNumber, &result.MandateNumber, &result.Institution,
-		&result.GhanaCardNumber, &result.CreatedAt, &result.UpdatedAt,
+		&result.GhanaCardNumber, &result.Address, &result.Landmark, &result.Region,
+		&result.City, &result.PreferredDate, &result.Notes, &result.CreatedAt, &result.UpdatedAt,
 	)
 	if err != nil {
 		return nil, fmt.Errorf("insert application: %w", err)
@@ -61,7 +63,7 @@ func (r *ApplicationRepository) Create(ctx context.Context, app *models.Applicat
 // Use with CountByUserID to calculate pagination metadata.
 func (r *ApplicationRepository) FindByUserID(ctx context.Context, userID string, offset, limit int) ([]models.Application, error) {
 	query := `
-		SELECT id, user_id, package_type, COALESCE(package_id, ''), package_name, cart_items, total_amount, monthly_amount, status, staff_number, mandate_number, institution, ghana_card_number, created_at, updated_at
+		SELECT id, user_id, package_type, COALESCE(package_id, ''), package_name, cart_items, total_amount, monthly_amount, status, staff_number, mandate_number, institution, ghana_card_number, COALESCE(address, ''), COALESCE(landmark, ''), COALESCE(region, ''), COALESCE(city, ''), COALESCE(preferred_date::text, ''), COALESCE(notes, ''), created_at, updated_at
 		FROM applications
 		WHERE user_id = $1
 		ORDER BY created_at DESC
@@ -116,6 +118,12 @@ func (r *ApplicationRepository) FindAll(ctx context.Context, status string, offs
 				a.mandate_number,
 				a.institution,
 				a.ghana_card_number,
+				COALESCE(a.address, ''),
+				COALESCE(a.landmark, ''),
+				COALESCE(a.region, ''),
+				COALESCE(a.city, ''),
+				COALESCE(a.preferred_date::text, ''),
+				COALESCE(a.notes, ''),
 				a.created_at,
 				a.updated_at
 			FROM applications a
@@ -144,6 +152,12 @@ func (r *ApplicationRepository) FindAll(ctx context.Context, status string, offs
 				a.mandate_number,
 				a.institution,
 				a.ghana_card_number,
+				COALESCE(a.address, ''),
+				COALESCE(a.landmark, ''),
+				COALESCE(a.region, ''),
+				COALESCE(a.city, ''),
+				COALESCE(a.preferred_date::text, ''),
+				COALESCE(a.notes, ''),
 				a.created_at,
 				a.updated_at
 			FROM applications a
@@ -235,7 +249,7 @@ func (r *ApplicationRepository) CountByFixedPackage(ctx context.Context, package
 // not found.
 func (r *ApplicationRepository) FindByID(ctx context.Context, id string) (*models.Application, error) {
 	query := `
-		SELECT id, user_id, package_type, COALESCE(package_id, ''), package_name, cart_items, total_amount, monthly_amount, status, staff_number, mandate_number, institution, ghana_card_number, created_at, updated_at
+		SELECT id, user_id, package_type, COALESCE(package_id, ''), package_name, cart_items, total_amount, monthly_amount, status, staff_number, mandate_number, institution, ghana_card_number, COALESCE(address, ''), COALESCE(landmark, ''), COALESCE(region, ''), COALESCE(city, ''), COALESCE(preferred_date::text, ''), COALESCE(notes, ''), created_at, updated_at
 		FROM applications
 		WHERE id = $1
 	`
@@ -247,7 +261,8 @@ func (r *ApplicationRepository) FindByID(ctx context.Context, id string) (*model
 		&app.ID, &app.UserID, &app.PackageType, &app.PackageID, &app.PackageName,
 		&cartBytes, &app.TotalAmount, &app.MonthlyAmount, &app.Status,
 		&app.StaffNumber, &app.MandateNumber, &app.Institution,
-		&app.GhanaCardNumber, &app.CreatedAt, &app.UpdatedAt,
+		&app.GhanaCardNumber, &app.Address, &app.Landmark, &app.Region,
+		&app.City, &app.PreferredDate, &app.Notes, &app.CreatedAt, &app.UpdatedAt,
 	)
 	if err != nil {
 		return nil, fmt.Errorf("find application by id: %w", err)
@@ -267,7 +282,7 @@ func (r *ApplicationRepository) UpdateStatus(ctx context.Context, id, status str
 		UPDATE applications
 		SET status = $2, updated_at = NOW()
 		WHERE id = $1
-		RETURNING id, user_id, package_type, COALESCE(package_id, ''), package_name, cart_items, total_amount, monthly_amount, status, staff_number, mandate_number, institution, ghana_card_number, created_at, updated_at
+		RETURNING id, user_id, package_type, COALESCE(package_id, ''), package_name, cart_items, total_amount, monthly_amount, status, staff_number, mandate_number, institution, ghana_card_number, COALESCE(address, ''), COALESCE(landmark, ''), COALESCE(region, ''), COALESCE(city, ''), COALESCE(preferred_date::text, ''), COALESCE(notes, ''), created_at, updated_at
 	`
 
 	var app models.Application
@@ -277,7 +292,8 @@ func (r *ApplicationRepository) UpdateStatus(ctx context.Context, id, status str
 		&app.ID, &app.UserID, &app.PackageType, &app.PackageID, &app.PackageName,
 		&cartBytes, &app.TotalAmount, &app.MonthlyAmount, &app.Status,
 		&app.StaffNumber, &app.MandateNumber, &app.Institution,
-		&app.GhanaCardNumber, &app.CreatedAt, &app.UpdatedAt,
+		&app.GhanaCardNumber, &app.Address, &app.Landmark, &app.Region,
+		&app.City, &app.PreferredDate, &app.Notes, &app.CreatedAt, &app.UpdatedAt,
 	)
 	if err != nil {
 		return nil, fmt.Errorf("update application status: %w", err)
@@ -302,7 +318,8 @@ func scanApplications(rows pgx.Rows) ([]models.Application, error) {
 			&app.ID, &app.UserID, &app.PackageType, &app.PackageID, &app.PackageName,
 			&cartBytes, &app.TotalAmount, &app.MonthlyAmount, &app.Status,
 			&app.StaffNumber, &app.MandateNumber, &app.Institution,
-			&app.GhanaCardNumber, &app.CreatedAt, &app.UpdatedAt,
+			&app.GhanaCardNumber, &app.Address, &app.Landmark, &app.Region,
+			&app.City, &app.PreferredDate, &app.Notes, &app.CreatedAt, &app.UpdatedAt,
 		); err != nil {
 			return nil, fmt.Errorf("scan application: %w", err)
 		}
@@ -344,6 +361,12 @@ func scanApplicationsWithCustomer(rows pgx.Rows) ([]models.Application, error) {
 			&app.MandateNumber,
 			&app.Institution,
 			&app.GhanaCardNumber,
+			&app.Address,
+			&app.Landmark,
+			&app.Region,
+			&app.City,
+			&app.PreferredDate,
+			&app.Notes,
 			&app.CreatedAt,
 			&app.UpdatedAt,
 		); err != nil {

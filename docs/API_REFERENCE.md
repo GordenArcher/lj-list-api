@@ -354,6 +354,10 @@ Success `200` data:
     "staff_number": "GES-2024-0018",
     "institution": "Ghana Education Service",
     "ghana_card_number": "GHA-123456789-0",
+    "address": "House No. 14, Mango Street",
+    "landmark": "Near Shell Filling Station",
+    "region": "Greater Accra",
+    "city": "Madina",
     "role": "customer",
     "created_at": "2026-04-29T12:00:00Z",
     "updated_at": "2026-04-29T12:00:00Z"
@@ -374,6 +378,10 @@ Request body may include any subset of:
   "staff_number": "GES-2024-0018",
   "institution": "Ghana Education Service",
   "ghana_card_number": "GHA-123456789-0",
+  "address": "House No. 14, Mango Street",
+  "landmark": "Near Shell Filling Station",
+  "region": "Greater Accra",
+  "city": "Madina",
   "password": "password123"
 }
 ```
@@ -573,15 +581,26 @@ Request body:
   "staff_number": "GS123456",
   "mandate_number": "MND-001",
   "institution": "Ghana Health Service",
-  "ghana_card_number": "GHA-000-0000-0"
+  "ghana_card_number": "GHA-000-0000-0",
+  "address": "House No. 14, Mango Street",
+  "landmark": "Near Shell Filling Station",
+  "region": "Greater Accra",
+  "city": "Madina",
+  "preferred_date": "2026-05-22",
+  "notes": "Please call before delivery"
 }
 ```
 
 `mandate_number` is always required. `staff_number`, `institution`, and
 `ghana_card_number` may be omitted if they already exist on the authenticated
-user profile; the API will fall back to those profile values.
+user profile; the API will fall back to those profile values. `address`,
+`landmark`, `region`, and `city` work the same way, but remain optional for
+backward compatibility. When present, the resolved location values are copied
+onto the application as a point-in-time snapshot. `preferred_date` and `notes`
+belong only to the application; `preferred_date` must use `YYYY-MM-DD` when
+provided.
 
-Success `201` data: full `application` object (`id`, `user_id`, `package_type`, `package_id`, `package_name`, `cart_items`, `total_amount`, `monthly_amount`, `status`, `staff_number`, `mandate_number`, `institution`, `ghana_card_number`, `created_at`, `updated_at`).
+Success `201` data: full `application` object (`id`, `user_id`, `package_type`, `package_id`, `package_name`, `cart_items`, `total_amount`, `monthly_amount`, `status`, `staff_number`, `mandate_number`, `institution`, `ghana_card_number`, `address`, `landmark`, `region`, `city`, `preferred_date`, `notes`, `created_at`, `updated_at`).
 
 ### GET `/applications`
 

@@ -21,6 +21,10 @@ type CreateUserInput struct {
 	StaffNumber     string
 	Institution     string
 	GhanaCardNumber string
+	Address         string
+	Landmark        string
+	Region          string
+	City            string
 	IsActive        bool
 	OTPHash         *string
 	OTPExpiresAt    *time.Time
@@ -33,6 +37,10 @@ type UpdateUserInput struct {
 	StaffNumber     string
 	Institution     string
 	GhanaCardNumber string
+	Address         string
+	Landmark        string
+	Region          string
+	City            string
 	PasswordHash    *string
 	Role            string
 }
@@ -54,12 +62,16 @@ func (r *UserRepository) Create(ctx context.Context, input CreateUserInput) (*mo
 			staff_number,
 			institution,
 			ghana_card_number,
+			address,
+			landmark,
+			region,
+			city,
 			is_active,
 			otp_hash,
 			otp_expires_at,
 			role
 		)
-		VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10)
+		VALUES ($1, $2, $3, $4, $5, $6, NULLIF($7, ''), NULLIF($8, ''), NULLIF($9, ''), NULLIF($10, ''), $11, $12, $13, $14)
 		RETURNING
 			id,
 			password_hash,
@@ -68,6 +80,10 @@ func (r *UserRepository) Create(ctx context.Context, input CreateUserInput) (*mo
 			COALESCE(staff_number, ''),
 			COALESCE(institution, ''),
 			COALESCE(ghana_card_number, ''),
+			COALESCE(address, ''),
+			COALESCE(landmark, ''),
+			COALESCE(region, ''),
+			COALESCE(city, ''),
 			is_active,
 			otp_hash,
 			otp_expires_at,
@@ -86,6 +102,10 @@ func (r *UserRepository) Create(ctx context.Context, input CreateUserInput) (*mo
 		input.StaffNumber,
 		input.Institution,
 		input.GhanaCardNumber,
+		input.Address,
+		input.Landmark,
+		input.Region,
+		input.City,
 		input.IsActive,
 		input.OTPHash,
 		input.OTPExpiresAt,
@@ -98,6 +118,10 @@ func (r *UserRepository) Create(ctx context.Context, input CreateUserInput) (*mo
 		&user.StaffNumber,
 		&user.Institution,
 		&user.GhanaCardNumber,
+		&user.Address,
+		&user.Landmark,
+		&user.Region,
+		&user.City,
 		&user.IsActive,
 		&user.OTPHash,
 		&user.OTPExpiresAt,
@@ -124,6 +148,10 @@ func (r *UserRepository) FindByPhoneNumber(ctx context.Context, phoneNumber stri
 			COALESCE(staff_number, ''),
 			COALESCE(institution, ''),
 			COALESCE(ghana_card_number, ''),
+			COALESCE(address, ''),
+			COALESCE(landmark, ''),
+			COALESCE(region, ''),
+			COALESCE(city, ''),
 			is_active,
 			otp_hash,
 			otp_expires_at,
@@ -143,6 +171,10 @@ func (r *UserRepository) FindByPhoneNumber(ctx context.Context, phoneNumber stri
 		&user.StaffNumber,
 		&user.Institution,
 		&user.GhanaCardNumber,
+		&user.Address,
+		&user.Landmark,
+		&user.Region,
+		&user.City,
 		&user.IsActive,
 		&user.OTPHash,
 		&user.OTPExpiresAt,
@@ -169,6 +201,10 @@ func (r *UserRepository) FindByID(ctx context.Context, id string) (*models.User,
 			COALESCE(staff_number, ''),
 			COALESCE(institution, ''),
 			COALESCE(ghana_card_number, ''),
+			COALESCE(address, ''),
+			COALESCE(landmark, ''),
+			COALESCE(region, ''),
+			COALESCE(city, ''),
 			is_active,
 			otp_hash,
 			otp_expires_at,
@@ -188,6 +224,10 @@ func (r *UserRepository) FindByID(ctx context.Context, id string) (*models.User,
 		&user.StaffNumber,
 		&user.Institution,
 		&user.GhanaCardNumber,
+		&user.Address,
+		&user.Landmark,
+		&user.Region,
+		&user.City,
 		&user.IsActive,
 		&user.OTPHash,
 		&user.OTPExpiresAt,
@@ -235,6 +275,10 @@ func (r *UserRepository) Activate(ctx context.Context, userID string) (*models.U
 			COALESCE(staff_number, ''),
 			COALESCE(institution, ''),
 			COALESCE(ghana_card_number, ''),
+			COALESCE(address, ''),
+			COALESCE(landmark, ''),
+			COALESCE(region, ''),
+			COALESCE(city, ''),
 			is_active,
 			otp_hash,
 			otp_expires_at,
@@ -252,6 +296,10 @@ func (r *UserRepository) Activate(ctx context.Context, userID string) (*models.U
 		&user.StaffNumber,
 		&user.Institution,
 		&user.GhanaCardNumber,
+		&user.Address,
+		&user.Landmark,
+		&user.Region,
+		&user.City,
 		&user.IsActive,
 		&user.OTPHash,
 		&user.OTPExpiresAt,
@@ -430,11 +478,15 @@ func (r *UserRepository) Update(ctx context.Context, id string, input UpdateUser
 			staff_number = $4,
 			institution = $5,
 			ghana_card_number = $6,
-			password_hash = COALESCE($7, password_hash),
-			role = $8,
+			address = NULLIF($7, ''),
+			landmark = NULLIF($8, ''),
+			region = NULLIF($9, ''),
+			city = NULLIF($10, ''),
+			password_hash = COALESCE($11, password_hash),
+			role = $12,
 			updated_at = NOW()
 		WHERE id = $1
-		RETURNING id, display_name, COALESCE(phone_number, ''), COALESCE(staff_number, ''), COALESCE(institution, ''), COALESCE(ghana_card_number, ''), role, created_at, updated_at
+		RETURNING id, display_name, COALESCE(phone_number, ''), COALESCE(staff_number, ''), COALESCE(institution, ''), COALESCE(ghana_card_number, ''), COALESCE(address, ''), COALESCE(landmark, ''), COALESCE(region, ''), COALESCE(city, ''), role, created_at, updated_at
 	`
 
 	var user models.User
@@ -447,6 +499,10 @@ func (r *UserRepository) Update(ctx context.Context, id string, input UpdateUser
 		input.StaffNumber,
 		input.Institution,
 		input.GhanaCardNumber,
+		input.Address,
+		input.Landmark,
+		input.Region,
+		input.City,
 		input.PasswordHash,
 		input.Role,
 	).Scan(
@@ -456,6 +512,10 @@ func (r *UserRepository) Update(ctx context.Context, id string, input UpdateUser
 		&user.StaffNumber,
 		&user.Institution,
 		&user.GhanaCardNumber,
+		&user.Address,
+		&user.Landmark,
+		&user.Region,
+		&user.City,
 		&user.Role,
 		&user.CreatedAt,
 		&user.UpdatedAt,
