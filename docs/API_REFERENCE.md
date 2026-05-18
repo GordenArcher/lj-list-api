@@ -408,6 +408,11 @@ Success `200` data:
       "name": "Royal Aroma Rice 5kg",
       "category": "Rice & Grains",
       "price": 120,
+      "display_tag": "In Stock",
+      "description": "",
+      "instructions": "",
+      "requires_inquiry": false,
+      "orderable": true,
       "image_url": "https://...",
       "images": [
         {
@@ -438,7 +443,18 @@ Success `200` data:
 
 ```json
 {
-  "categories": ["Rice & Grains", "Cooking Oil", "Beverages"]
+  "categories": [
+    {
+      "id": "uuid",
+      "name": "Vegetables",
+      "description": "Prices and availability depend on market supply and season.",
+      "instructions": "Please contact admin for current availability and price before applying.",
+      "tag": "Seasonal",
+      "requires_inquiry": true,
+      "orderable": false,
+      "active": true
+    }
+  ]
 }
 ```
 
@@ -458,6 +474,11 @@ Fields:
 - `unit` required
 - `active` optional, defaults to `true`
 
+Products inherit display and ordering rules from their category. For example,
+a `Vegetables` category can set `tag = "Seasonal"`, `requires_inquiry = true`,
+and `orderable = false`; every product under it will return those values for
+frontend display and cart disabling.
+
 Success `201` data:
 
 ```json
@@ -466,6 +487,11 @@ Success `201` data:
   "name": "Royal Aroma Rice 5kg",
   "category": "Rice & Grains",
   "price": 120,
+  "display_tag": "Seasonal",
+  "description": "Prices and availability depend on market supply and season.",
+  "instructions": "Please contact admin for current availability and price before applying.",
+  "requires_inquiry": true,
+  "orderable": false,
   "image_url": "",
   "images": [],
   "unit": "bag",

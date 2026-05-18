@@ -17,9 +17,14 @@ func NewCategoryHandler(categoryService *services.CategoryService) *CategoryHand
 }
 
 type categoryRequest struct {
-	Name      string `json:"name"`
-	SortOrder *int   `json:"sort_order,omitempty"`
-	Active    *bool  `json:"active,omitempty"`
+	Name            string  `json:"name"`
+	Description     *string `json:"description,omitempty"`
+	Instructions    *string `json:"instructions,omitempty"`
+	Tag             *string `json:"tag,omitempty"`
+	SortOrder       *int    `json:"sort_order,omitempty"`
+	RequiresInquiry *bool   `json:"requires_inquiry,omitempty"`
+	Orderable       *bool   `json:"orderable,omitempty"`
+	Active          *bool   `json:"active,omitempty"`
 }
 
 func (h *CategoryHandler) List(c *gin.Context) {
@@ -62,9 +67,14 @@ func (h *CategoryHandler) Create(c *gin.Context) {
 	}
 
 	cat, err := h.categoryService.Create(c.Request.Context(), services.CreateCategoryInput{
-		Name:      req.Name,
-		SortOrder: req.SortOrder,
-		Active:    req.Active,
+		Name:            req.Name,
+		Description:     stringValue(req.Description),
+		Instructions:    stringValue(req.Instructions),
+		Tag:             stringValue(req.Tag),
+		SortOrder:       req.SortOrder,
+		RequiresInquiry: req.RequiresInquiry,
+		Orderable:       req.Orderable,
+		Active:          req.Active,
 	})
 	if err != nil {
 		utils.HandleError(c, err, "Failed to create category")
@@ -84,9 +94,14 @@ func (h *CategoryHandler) Update(c *gin.Context) {
 	}
 
 	cat, err := h.categoryService.Update(c.Request.Context(), c.Param("id"), services.UpdateCategoryInput{
-		Name:      &req.Name,
-		SortOrder: req.SortOrder,
-		Active:    req.Active,
+		Name:            &req.Name,
+		Description:     req.Description,
+		Instructions:    req.Instructions,
+		Tag:             req.Tag,
+		SortOrder:       req.SortOrder,
+		RequiresInquiry: req.RequiresInquiry,
+		Orderable:       req.Orderable,
+		Active:          req.Active,
 	})
 	if err != nil {
 		utils.HandleError(c, err, "Failed to update category")
@@ -94,6 +109,13 @@ func (h *CategoryHandler) Update(c *gin.Context) {
 	}
 
 	utils.Success(c, http.StatusOK, "Category updated successfully", cat)
+}
+
+func stringValue(value *string) string {
+	if value == nil {
+		return ""
+	}
+	return *value
 }
 
 func (h *CategoryHandler) Delete(c *gin.Context) {

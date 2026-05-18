@@ -631,12 +631,13 @@ func TestApplicationServiceSubmitResolvesLegacyNumericProductIDs(t *testing.T) {
 	productRepo := &stubApplicationProductRepo{
 		productByLegacyID: map[int]*models.Product{
 			101: &models.Product{
-				ID:       "prod-uuid",
-				LegacyID: intPtr(101),
-				Name:     "Royal Aroma 25kg (5*5)",
-				Price:    400,
-				Unit:     "bag",
-				Active:   true,
+				ID:        "prod-uuid",
+				LegacyID:  intPtr(101),
+				Name:      "Royal Aroma 25kg (5*5)",
+				Price:     400,
+				Unit:      "bag",
+				Active:    true,
+				Orderable: true,
 			},
 		},
 	}
@@ -688,6 +689,63 @@ func TestApplicationServiceSubmitResolvesLegacyNumericProductIDs(t *testing.T) {
 	}
 	if appRepo.createInput.TotalAmount != 800 {
 		t.Fatalf("expected total amount 800, got %d", appRepo.createInput.TotalAmount)
+	}
+}
+
+func TestApplicationServiceSubmitRejectsInquiryOnlyProducts(t *testing.T) {
+	t.Parallel()
+
+	appRepo := &stubApplicationRepo{}
+	service := &ApplicationService{
+		applicationRepo: appRepo,
+		productRepo: &stubApplicationProductRepo{
+			productByID: map[string]*models.Product{
+				"prod-seasonal": {
+					ID:              "prod-seasonal",
+					Name:            "Fresh Tomatoes",
+					Price:           400,
+					Unit:            "basket",
+					Active:          true,
+					RequiresInquiry: true,
+					Orderable:       false,
+				},
+			},
+		},
+		packageRepo: &stubApplicationPackageRepo{},
+		userRepo: &stubApplicationUserRepo{
+			user: &models.User{
+				ID:              "user-1",
+				StaffNumber:     "GES-2024-0018",
+				Institution:     "Ghana Education Service",
+				GhanaCardNumber: "GHA-123456789-0",
+			},
+		},
+		cfg: config.Config{MinOrder: 1},
+	}
+
+	_, err := service.Submit(
+		context.Background(),
+		"user-1",
+		"custom",
+		"",
+		"",
+		[]CartItemInput{{ProductID: "prod-seasonal", Quantity: 1}},
+		"",
+		"MND-001",
+		"",
+		"",
+		"",
+		"",
+		"",
+		"",
+		"",
+		"",
+	)
+	if err == nil {
+		t.Fatal("expected validation error for inquiry-only product")
+	}
+	if appRepo.createInput != nil {
+		t.Fatal("expected application creation to be skipped")
 	}
 }
 

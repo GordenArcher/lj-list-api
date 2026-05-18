@@ -145,6 +145,11 @@ func (s *ApplicationService) Submit(ctx context.Context, userID, packageType, pa
 				}
 				return nil, apperrors.Wrap(apperrors.KindInternal, "Failed to validate cart items", err)
 			}
+			if product.RequiresInquiry || !product.Orderable {
+				return nil, apperrors.New(apperrors.KindValidation, "Validation failed", map[string][]string{
+					"cart_items": {"one or more products require admin inquiry before applying"},
+				})
+			}
 
 			subtotal := product.Price * ci.Quantity
 			total += subtotal

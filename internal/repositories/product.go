@@ -34,28 +34,30 @@ func (r *ProductRepository) findAll(ctx context.Context, categoryID string, offs
 	if categoryID == "" {
 		where := "WHERE "
 		if activeOnly {
-			where += "active = true"
+			where += "p.active = true AND c.active = true"
 		} else {
 			where += "1 = 1"
 		}
 		query := `
-			SELECT id, name, legacy_id, COALESCE(category_id::text, ''), category, price, old_price, tag, image_url, unit, active
-			FROM products
+			SELECT p.id, p.name, p.legacy_id, COALESCE(p.category_id::text, ''), p.category, p.price, p.old_price, p.tag, COALESCE(NULLIF(p.tag, ''), c.tag, ''), COALESCE(c.description, ''), COALESCE(c.instructions, ''), c.requires_inquiry, c.orderable, p.image_url, p.unit, p.active
+			FROM products p
+			JOIN categories c ON c.id = p.category_id
 		` + where + `
-			ORDER BY category, name
+			ORDER BY p.category, p.name
 			OFFSET $1 LIMIT $2
 		`
 		rows, err = r.pool.Query(ctx, query, offset, limit)
 	} else {
-		where := "WHERE category_id = $1"
+		where := "WHERE p.category_id = $1"
 		if activeOnly {
-			where += " AND active = true"
+			where += " AND p.active = true AND c.active = true"
 		}
 		query := `
-			SELECT id, name, legacy_id, COALESCE(category_id::text, ''), category, price, old_price, tag, image_url, unit, active
-			FROM products
+			SELECT p.id, p.name, p.legacy_id, COALESCE(p.category_id::text, ''), p.category, p.price, p.old_price, p.tag, COALESCE(NULLIF(p.tag, ''), c.tag, ''), COALESCE(c.description, ''), COALESCE(c.instructions, ''), c.requires_inquiry, c.orderable, p.image_url, p.unit, p.active
+			FROM products p
+			JOIN categories c ON c.id = p.category_id
 		` + where + `
-			ORDER BY category, name
+			ORDER BY p.category, p.name
 			OFFSET $2 LIMIT $3
 		`
 		rows, err = r.pool.Query(ctx, query, categoryID, offset, limit)
@@ -71,17 +73,10 @@ func (r *ProductRepository) findAll(ctx context.Context, categoryID string, offs
 		var p models.Product
 		var legacyID sql.NullInt64
 		var oldPrice sql.NullInt64
-		if err := rows.Scan(&p.ID, &p.Name, &legacyID, &p.CategoryID, &p.Category, &p.Price, &oldPrice, &p.Tag, &p.ImageURL, &p.Unit, &p.Active); err != nil {
+		if err := scanProduct(rows, &p, &legacyID, &oldPrice); err != nil {
 			return nil, fmt.Errorf("scan product: %w", err)
 		}
-		if legacyID.Valid {
-			id := int(legacyID.Int64)
-			p.LegacyID = &id
-		}
-		if oldPrice.Valid {
-			price := int(oldPrice.Int64)
-			p.OldPrice = &price
-		}
+		applyNullableProductFields(&p, legacyID, oldPrice)
 		products = append(products, p)
 	}
 
@@ -90,6 +85,42 @@ func (r *ProductRepository) findAll(ctx context.Context, categoryID string, offs
 	}
 
 	return products, nil
+}
+
+type productScanner interface {
+	Scan(dest ...any) error
+}
+
+func scanProduct(row productScanner, p *models.Product, legacyID, oldPrice *sql.NullInt64) error {
+	return row.Scan(
+		&p.ID,
+		&p.Name,
+		legacyID,
+		&p.CategoryID,
+		&p.Category,
+		&p.Price,
+		oldPrice,
+		&p.Tag,
+		&p.DisplayTag,
+		&p.Description,
+		&p.Instructions,
+		&p.RequiresInquiry,
+		&p.Orderable,
+		&p.ImageURL,
+		&p.Unit,
+		&p.Active,
+	)
+}
+
+func applyNullableProductFields(p *models.Product, legacyID, oldPrice sql.NullInt64) {
+	if legacyID.Valid {
+		id := int(legacyID.Int64)
+		p.LegacyID = &id
+	}
+	if oldPrice.Valid {
+		price := int(oldPrice.Int64)
+		p.OldPrice = &price
+	}
 }
 
 func (r *ProductRepository) CountAll(ctx context.Context, categoryID string) (int, error) {
@@ -106,7 +137,12 @@ func (r *ProductRepository) countAll(ctx context.Context, categoryID string, act
 	if categoryID == "" {
 		query := `SELECT COUNT(*) FROM products`
 		if activeOnly {
-			query += " WHERE active = true"
+			query = `
+				SELECT COUNT(*)
+				FROM products p
+				JOIN categories c ON c.id = p.category_id
+				WHERE p.active = true AND c.active = true
+			`
 		}
 		err := r.pool.QueryRow(ctx, query).Scan(&count)
 		if err != nil {
@@ -115,7 +151,12 @@ func (r *ProductRepository) countAll(ctx context.Context, categoryID string, act
 	} else {
 		query := `SELECT COUNT(*) FROM products WHERE category_id = $1`
 		if activeOnly {
-			query += " AND active = true"
+			query = `
+				SELECT COUNT(*)
+				FROM products p
+				JOIN categories c ON c.id = p.category_id
+				WHERE p.category_id = $1 AND p.active = true AND c.active = true
+			`
 		}
 		err := r.pool.QueryRow(ctx, query, categoryID).Scan(&count)
 		if err != nil {
@@ -129,7 +170,7 @@ func (r *ProductRepository) countAll(ctx context.Context, categoryID string, act
 // FindAllCategories returns the active storefront categories.
 func (r *ProductRepository) FindAllCategories(ctx context.Context) ([]models.Category, error) {
 	query := `
-		SELECT id, sort_order, name, active
+		SELECT id, sort_order, name, COALESCE(description, ''), COALESCE(instructions, ''), COALESCE(tag, ''), requires_inquiry, orderable, active
 		FROM categories
 		WHERE active = true
 		ORDER BY sort_order, name
@@ -144,7 +185,7 @@ func (r *ProductRepository) FindAllCategories(ctx context.Context) ([]models.Cat
 	var categories []models.Category
 	for rows.Next() {
 		var cat models.Category
-		if err := rows.Scan(&cat.ID, &cat.SortOrder, &cat.Name, &cat.Active); err != nil {
+		if err := scanCategory(rows, &cat); err != nil {
 			return nil, fmt.Errorf("scan category: %w", err)
 		}
 		categories = append(categories, cat)
@@ -160,13 +201,13 @@ func (r *ProductRepository) FindAllCategories(ctx context.Context) ([]models.Cat
 // FindCategoryByID returns an active storefront category by UUID.
 func (r *ProductRepository) FindCategoryByID(ctx context.Context, id string) (*models.Category, error) {
 	query := `
-		SELECT id, sort_order, name, active
+		SELECT id, sort_order, name, COALESCE(description, ''), COALESCE(instructions, ''), COALESCE(tag, ''), requires_inquiry, orderable, active
 		FROM categories
 		WHERE id = $1 AND active = true
 	`
 
 	var cat models.Category
-	if err := r.pool.QueryRow(ctx, query, id).Scan(&cat.ID, &cat.SortOrder, &cat.Name, &cat.Active); err != nil {
+	if err := scanCategoryRow(r.pool.QueryRow(ctx, query, id), &cat); err != nil {
 		return nil, fmt.Errorf("find category by id: %w", err)
 	}
 	return &cat, nil
@@ -175,13 +216,13 @@ func (r *ProductRepository) FindCategoryByID(ctx context.Context, id string) (*m
 // FindCategoryByName returns an active storefront category by its display name.
 func (r *ProductRepository) FindCategoryByName(ctx context.Context, name string) (*models.Category, error) {
 	query := `
-		SELECT id, sort_order, name, active
+		SELECT id, sort_order, name, COALESCE(description, ''), COALESCE(instructions, ''), COALESCE(tag, ''), requires_inquiry, orderable, active
 		FROM categories
 		WHERE LOWER(name) = LOWER($1) AND active = true
 	`
 
 	var cat models.Category
-	if err := r.pool.QueryRow(ctx, query, name).Scan(&cat.ID, &cat.SortOrder, &cat.Name, &cat.Active); err != nil {
+	if err := scanCategoryRow(r.pool.QueryRow(ctx, query, name), &cat); err != nil {
 		return nil, fmt.Errorf("find category by name: %w", err)
 	}
 	return &cat, nil
@@ -193,28 +234,20 @@ func (r *ProductRepository) FindCategoryByName(ctx context.Context, name string)
 // name to freeze them into the application.
 func (r *ProductRepository) FindByID(ctx context.Context, id string) (*models.Product, error) {
 	query := `
-		SELECT id, name, legacy_id, COALESCE(category_id::text, ''), category, price, old_price, tag, image_url, unit, active
-		FROM products
-		WHERE id = $1 AND active = true
+		SELECT p.id, p.name, p.legacy_id, COALESCE(p.category_id::text, ''), p.category, p.price, p.old_price, p.tag, COALESCE(NULLIF(p.tag, ''), c.tag, ''), COALESCE(c.description, ''), COALESCE(c.instructions, ''), c.requires_inquiry, c.orderable, p.image_url, p.unit, p.active
+		FROM products p
+		JOIN categories c ON c.id = p.category_id
+		WHERE p.id = $1 AND p.active = true AND c.active = true
 	`
 
 	var p models.Product
 	var legacyID sql.NullInt64
 	var oldPrice sql.NullInt64
-	err := r.pool.QueryRow(ctx, query, id).Scan(
-		&p.ID, &p.Name, &legacyID, &p.CategoryID, &p.Category, &p.Price, &oldPrice, &p.Tag, &p.ImageURL, &p.Unit, &p.Active,
-	)
+	err := scanProduct(r.pool.QueryRow(ctx, query, id), &p, &legacyID, &oldPrice)
 	if err != nil {
 		return nil, fmt.Errorf("find product by id: %w", err)
 	}
-	if legacyID.Valid {
-		id := int(legacyID.Int64)
-		p.LegacyID = &id
-	}
-	if oldPrice.Valid {
-		price := int(oldPrice.Int64)
-		p.OldPrice = &price
-	}
+	applyNullableProductFields(&p, legacyID, oldPrice)
 
 	return &p, nil
 }
@@ -224,28 +257,20 @@ func (r *ProductRepository) FindByID(ctx context.Context, id string) (*models.Pr
 // reactivated later.
 func (r *ProductRepository) FindByIDForAdmin(ctx context.Context, id string) (*models.Product, error) {
 	query := `
-		SELECT id, name, legacy_id, COALESCE(category_id::text, ''), category, price, old_price, tag, image_url, unit, active
-		FROM products
-		WHERE id = $1
+		SELECT p.id, p.name, p.legacy_id, COALESCE(p.category_id::text, ''), p.category, p.price, p.old_price, p.tag, COALESCE(NULLIF(p.tag, ''), c.tag, ''), COALESCE(c.description, ''), COALESCE(c.instructions, ''), c.requires_inquiry, c.orderable, p.image_url, p.unit, p.active
+		FROM products p
+		JOIN categories c ON c.id = p.category_id
+		WHERE p.id = $1
 	`
 
 	var p models.Product
 	var legacyID sql.NullInt64
 	var oldPrice sql.NullInt64
-	err := r.pool.QueryRow(ctx, query, id).Scan(
-		&p.ID, &p.Name, &legacyID, &p.CategoryID, &p.Category, &p.Price, &oldPrice, &p.Tag, &p.ImageURL, &p.Unit, &p.Active,
-	)
+	err := scanProduct(r.pool.QueryRow(ctx, query, id), &p, &legacyID, &oldPrice)
 	if err != nil {
 		return nil, fmt.Errorf("find product by id for admin: %w", err)
 	}
-	if legacyID.Valid {
-		id := int(legacyID.Int64)
-		p.LegacyID = &id
-	}
-	if oldPrice.Valid {
-		price := int(oldPrice.Int64)
-		p.OldPrice = &price
-	}
+	applyNullableProductFields(&p, legacyID, oldPrice)
 
 	return &p, nil
 }
@@ -255,24 +280,24 @@ func (r *ProductRepository) FindByIDForAdmin(ctx context.Context, id string) (*m
 // image for backward compatibility with clients that still read one URL.
 func (r *ProductRepository) Create(ctx context.Context, name, categoryID, categoryName, unit string, price int, oldPriceValue *int, tag string, active bool) (*models.Product, error) {
 	query := `
-		INSERT INTO products (name, category_id, category, price, legacy_id, old_price, tag, image_url, unit, active)
-		VALUES ($1, $2, $3, $4, NULL, $5, $6, '', $7, $8)
-		RETURNING id, name, legacy_id, COALESCE(category_id::text, ''), category, price, old_price, tag, image_url, unit, active
+		WITH inserted AS (
+			INSERT INTO products (name, category_id, category, price, legacy_id, old_price, tag, image_url, unit, active)
+			VALUES ($1, $2, $3, $4, NULL, $5, $6, '', $7, $8)
+			RETURNING id, name, legacy_id, category_id, category, price, old_price, tag, image_url, unit, active
+		)
+		SELECT i.id, i.name, i.legacy_id, COALESCE(i.category_id::text, ''), i.category, i.price, i.old_price, i.tag, COALESCE(NULLIF(i.tag, ''), c.tag, ''), COALESCE(c.description, ''), COALESCE(c.instructions, ''), c.requires_inquiry, c.orderable, i.image_url, i.unit, i.active
+		FROM inserted i
+		JOIN categories c ON c.id = i.category_id
 	`
 
 	var p models.Product
 	var legacyID sql.NullInt64
 	var dbOldPrice sql.NullInt64
-	err := r.pool.QueryRow(ctx, query, name, categoryID, categoryName, price, oldPriceValue, tag, unit, active).Scan(
-		&p.ID, &p.Name, &legacyID, &p.CategoryID, &p.Category, &p.Price, &dbOldPrice, &p.Tag, &p.ImageURL, &p.Unit, &p.Active,
-	)
+	err := scanProduct(r.pool.QueryRow(ctx, query, name, categoryID, categoryName, price, oldPriceValue, tag, unit, active), &p, &legacyID, &dbOldPrice)
 	if err != nil {
 		return nil, fmt.Errorf("insert product: %w", err)
 	}
-	if dbOldPrice.Valid {
-		price := int(dbOldPrice.Int64)
-		p.OldPrice = &price
-	}
+	applyNullableProductFields(&p, legacyID, dbOldPrice)
 
 	return &p, nil
 }
@@ -282,37 +307,33 @@ func (r *ProductRepository) Create(ctx context.Context, name, categoryID, catego
 // leaves image_url alone so gallery endpoints control the primary image sync.
 func (r *ProductRepository) Update(ctx context.Context, id, name, categoryID, categoryName, unit string, price int, oldPriceValue *int, tag string, active bool) (*models.Product, error) {
 	query := `
-		UPDATE products
-		SET name = $2,
-			category_id = $3,
-			category = $4,
-			price = $5,
-			old_price = $6,
-			tag = $7,
-			unit = $8,
-			active = $9,
-			updated_at = NOW()
-		WHERE id = $1
-		RETURNING id, name, legacy_id, COALESCE(category_id::text, ''), category, price, old_price, tag, image_url, unit, active
+		WITH updated AS (
+			UPDATE products
+			SET name = $2,
+				category_id = $3,
+				category = $4,
+				price = $5,
+				old_price = $6,
+				tag = $7,
+				unit = $8,
+				active = $9,
+				updated_at = NOW()
+			WHERE id = $1
+			RETURNING id, name, legacy_id, category_id, category, price, old_price, tag, image_url, unit, active
+		)
+		SELECT u.id, u.name, u.legacy_id, COALESCE(u.category_id::text, ''), u.category, u.price, u.old_price, u.tag, COALESCE(NULLIF(u.tag, ''), c.tag, ''), COALESCE(c.description, ''), COALESCE(c.instructions, ''), c.requires_inquiry, c.orderable, u.image_url, u.unit, u.active
+		FROM updated u
+		JOIN categories c ON c.id = u.category_id
 	`
 
 	var p models.Product
 	var legacyID sql.NullInt64
 	var dbOldPrice sql.NullInt64
-	err := r.pool.QueryRow(ctx, query, id, name, categoryID, categoryName, price, oldPriceValue, tag, unit, active).Scan(
-		&p.ID, &p.Name, &legacyID, &p.CategoryID, &p.Category, &p.Price, &dbOldPrice, &p.Tag, &p.ImageURL, &p.Unit, &p.Active,
-	)
+	err := scanProduct(r.pool.QueryRow(ctx, query, id, name, categoryID, categoryName, price, oldPriceValue, tag, unit, active), &p, &legacyID, &dbOldPrice)
 	if err != nil {
 		return nil, fmt.Errorf("update product: %w", err)
 	}
-	if legacyID.Valid {
-		id := int(legacyID.Int64)
-		p.LegacyID = &id
-	}
-	if dbOldPrice.Valid {
-		price := int(dbOldPrice.Int64)
-		p.OldPrice = &price
-	}
+	applyNullableProductFields(&p, legacyID, dbOldPrice)
 
 	return &p, nil
 }
@@ -336,28 +357,20 @@ func (r *ProductRepository) Delete(ctx context.Context, id string) error {
 // FindByLegacyID returns a single product by the frontend numeric ID.
 func (r *ProductRepository) FindByLegacyID(ctx context.Context, legacyID int) (*models.Product, error) {
 	query := `
-		SELECT id, name, legacy_id, COALESCE(category_id::text, ''), category, price, old_price, tag, image_url, unit, active
-		FROM products
-		WHERE legacy_id = $1 AND active = true
+		SELECT p.id, p.name, p.legacy_id, COALESCE(p.category_id::text, ''), p.category, p.price, p.old_price, p.tag, COALESCE(NULLIF(p.tag, ''), c.tag, ''), COALESCE(c.description, ''), COALESCE(c.instructions, ''), c.requires_inquiry, c.orderable, p.image_url, p.unit, p.active
+		FROM products p
+		JOIN categories c ON c.id = p.category_id
+		WHERE p.legacy_id = $1 AND p.active = true AND c.active = true
 	`
 
 	var p models.Product
 	var dbLegacyID sql.NullInt64
 	var oldPrice sql.NullInt64
-	err := r.pool.QueryRow(ctx, query, legacyID).Scan(
-		&p.ID, &p.Name, &dbLegacyID, &p.CategoryID, &p.Category, &p.Price, &oldPrice, &p.Tag, &p.ImageURL, &p.Unit, &p.Active,
-	)
+	err := scanProduct(r.pool.QueryRow(ctx, query, legacyID), &p, &dbLegacyID, &oldPrice)
 	if err != nil {
 		return nil, fmt.Errorf("find product by legacy id: %w", err)
 	}
-	if dbLegacyID.Valid {
-		id := int(dbLegacyID.Int64)
-		p.LegacyID = &id
-	}
-	if oldPrice.Valid {
-		price := int(oldPrice.Int64)
-		p.OldPrice = &price
-	}
+	applyNullableProductFields(&p, dbLegacyID, oldPrice)
 
 	return &p, nil
 }

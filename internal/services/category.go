@@ -24,15 +24,25 @@ type categoryRepository interface {
 }
 
 type CreateCategoryInput struct {
-	Name      string
-	SortOrder *int
-	Active    *bool
+	Name            string
+	Description     string
+	Instructions    string
+	Tag             string
+	SortOrder       *int
+	RequiresInquiry *bool
+	Orderable       *bool
+	Active          *bool
 }
 
 type UpdateCategoryInput struct {
-	Name      *string
-	SortOrder *int
-	Active    *bool
+	Name            *string
+	Description     *string
+	Instructions    *string
+	Tag             *string
+	SortOrder       *int
+	RequiresInquiry *bool
+	Orderable       *bool
+	Active          *bool
 }
 
 type CategoryService struct {
@@ -67,8 +77,18 @@ func (s *CategoryService) Create(ctx context.Context, input CreateCategoryInput)
 	if input.Active != nil {
 		active = *input.Active
 	}
+	requiresInquiry := false
+	if input.RequiresInquiry != nil {
+		requiresInquiry = *input.RequiresInquiry
+	}
+	orderable := true
+	if input.Orderable != nil {
+		orderable = *input.Orderable
+	} else if requiresInquiry {
+		orderable = false
+	}
 
-	normalized, err := normalizeCategoryInput(input.Name, input.SortOrder, &active)
+	normalized, err := normalizeCategoryInput(input.Name, input.Description, input.Instructions, input.Tag, input.SortOrder, &requiresInquiry, &orderable, &active)
 	if err != nil {
 		return nil, err
 	}
@@ -101,6 +121,16 @@ func (s *CategoryService) Update(ctx context.Context, id string, input UpdateCat
 	if input.Active != nil {
 		active = *input.Active
 	}
+	requiresInquiry := current.RequiresInquiry
+	if input.RequiresInquiry != nil {
+		requiresInquiry = *input.RequiresInquiry
+	}
+	orderable := current.Orderable
+	if input.Orderable != nil {
+		orderable = *input.Orderable
+	} else if input.RequiresInquiry != nil && requiresInquiry {
+		orderable = false
+	}
 
 	sortOrder := current.SortOrder
 	if input.SortOrder != nil {
@@ -111,8 +141,20 @@ func (s *CategoryService) Update(ctx context.Context, id string, input UpdateCat
 	if input.Name != nil && strings.TrimSpace(*input.Name) != "" {
 		name = strings.TrimSpace(*input.Name)
 	}
+	description := current.Description
+	if input.Description != nil {
+		description = strings.TrimSpace(*input.Description)
+	}
+	instructions := current.Instructions
+	if input.Instructions != nil {
+		instructions = strings.TrimSpace(*input.Instructions)
+	}
+	tag := current.Tag
+	if input.Tag != nil {
+		tag = strings.TrimSpace(*input.Tag)
+	}
 
-	normalized, err := normalizeCategoryInput(name, &sortOrder, &active)
+	normalized, err := normalizeCategoryInput(name, description, instructions, tag, &sortOrder, &requiresInquiry, &orderable, &active)
 	if err != nil {
 		return nil, err
 	}
@@ -175,14 +217,20 @@ func (s *CategoryService) nextSortOrder(ctx context.Context) (int, error) {
 	return max, nil
 }
 
-func normalizeCategoryInput(name string, sortOrder *int, active *bool) (models.Category, error) {
+func normalizeCategoryInput(name, description, instructions, tag string, sortOrder *int, requiresInquiry, orderable, active *bool) (models.Category, error) {
 	name = strings.TrimSpace(name)
 	if name == "" {
 		return models.Category{}, apperrors.New(apperrors.KindValidation, "Validation failed", map[string][]string{
 			"name": {"required"},
 		})
 	}
-	cat := models.Category{Name: name}
+	cat := models.Category{
+		Name:         name,
+		Description:  strings.TrimSpace(description),
+		Instructions: strings.TrimSpace(instructions),
+		Tag:          strings.TrimSpace(tag),
+		Orderable:    true,
+	}
 	if sortOrder != nil {
 		cat.SortOrder = *sortOrder
 		if cat.SortOrder < 0 {
@@ -193,6 +241,12 @@ func normalizeCategoryInput(name string, sortOrder *int, active *bool) (models.C
 	}
 	if active != nil {
 		cat.Active = *active
+	}
+	if requiresInquiry != nil {
+		cat.RequiresInquiry = *requiresInquiry
+	}
+	if orderable != nil {
+		cat.Orderable = *orderable
 	}
 	return cat, nil
 }

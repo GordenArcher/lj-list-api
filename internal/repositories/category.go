@@ -18,7 +18,7 @@ func NewCategoryRepository(pool *pgxpool.Pool) *CategoryRepository {
 
 func (r *CategoryRepository) List(ctx context.Context, includeInactive bool) ([]models.Category, error) {
 	query := `
-		SELECT id, sort_order, name, active
+		SELECT id, sort_order, name, COALESCE(description, ''), COALESCE(instructions, ''), COALESCE(tag, ''), requires_inquiry, orderable, active
 		FROM categories
 	`
 	if !includeInactive {
@@ -35,7 +35,7 @@ func (r *CategoryRepository) List(ctx context.Context, includeInactive bool) ([]
 	var categories []models.Category
 	for rows.Next() {
 		var cat models.Category
-		if err := rows.Scan(&cat.ID, &cat.SortOrder, &cat.Name, &cat.Active); err != nil {
+		if err := scanCategory(rows, &cat); err != nil {
 			return nil, fmt.Errorf("scan category: %w", err)
 		}
 		categories = append(categories, cat)
@@ -48,7 +48,7 @@ func (r *CategoryRepository) List(ctx context.Context, includeInactive bool) ([]
 
 func (r *CategoryRepository) FindByID(ctx context.Context, id string, includeInactive bool) (*models.Category, error) {
 	query := `
-		SELECT id, sort_order, name, active
+		SELECT id, sort_order, name, COALESCE(description, ''), COALESCE(instructions, ''), COALESCE(tag, ''), requires_inquiry, orderable, active
 		FROM categories
 		WHERE id = $1
 	`
@@ -57,7 +57,7 @@ func (r *CategoryRepository) FindByID(ctx context.Context, id string, includeIna
 	}
 
 	var cat models.Category
-	if err := r.pool.QueryRow(ctx, query, id).Scan(&cat.ID, &cat.SortOrder, &cat.Name, &cat.Active); err != nil {
+	if err := scanCategoryRow(r.pool.QueryRow(ctx, query, id), &cat); err != nil {
 		return nil, fmt.Errorf("find category by id: %w", err)
 	}
 	return &cat, nil
@@ -65,7 +65,7 @@ func (r *CategoryRepository) FindByID(ctx context.Context, id string, includeIna
 
 func (r *CategoryRepository) FindByName(ctx context.Context, name string, includeInactive bool) (*models.Category, error) {
 	query := `
-		SELECT id, sort_order, name, active
+		SELECT id, sort_order, name, COALESCE(description, ''), COALESCE(instructions, ''), COALESCE(tag, ''), requires_inquiry, orderable, active
 		FROM categories
 		WHERE LOWER(name) = LOWER($1)
 	`
@@ -74,7 +74,7 @@ func (r *CategoryRepository) FindByName(ctx context.Context, name string, includ
 	}
 
 	var cat models.Category
-	if err := r.pool.QueryRow(ctx, query, name).Scan(&cat.ID, &cat.SortOrder, &cat.Name, &cat.Active); err != nil {
+	if err := scanCategoryRow(r.pool.QueryRow(ctx, query, name), &cat); err != nil {
 		return nil, fmt.Errorf("find category by name: %w", err)
 	}
 	return &cat, nil
@@ -82,13 +82,13 @@ func (r *CategoryRepository) FindByName(ctx context.Context, name string, includ
 
 func (r *CategoryRepository) Create(ctx context.Context, cat *models.Category) (*models.Category, error) {
 	query := `
-		INSERT INTO categories (sort_order, name, active)
-		VALUES ($1, $2, $3)
-		RETURNING id, sort_order, name, active
+		INSERT INTO categories (sort_order, name, description, instructions, tag, requires_inquiry, orderable, active)
+		VALUES ($1, $2, $3, $4, $5, $6, $7, $8)
+		RETURNING id, sort_order, name, COALESCE(description, ''), COALESCE(instructions, ''), COALESCE(tag, ''), requires_inquiry, orderable, active
 	`
 
 	var result models.Category
-	if err := r.pool.QueryRow(ctx, query, cat.SortOrder, cat.Name, cat.Active).Scan(&result.ID, &result.SortOrder, &result.Name, &result.Active); err != nil {
+	if err := scanCategoryRow(r.pool.QueryRow(ctx, query, cat.SortOrder, cat.Name, cat.Description, cat.Instructions, cat.Tag, cat.RequiresInquiry, cat.Orderable, cat.Active), &result); err != nil {
 		return nil, fmt.Errorf("insert category: %w", err)
 	}
 	return &result, nil
@@ -99,17 +99,44 @@ func (r *CategoryRepository) Update(ctx context.Context, id string, cat *models.
 		UPDATE categories
 		SET sort_order = $2,
 			name = $3,
-			active = $4,
+			description = $4,
+			instructions = $5,
+			tag = $6,
+			requires_inquiry = $7,
+			orderable = $8,
+			active = $9,
 			updated_at = NOW()
 		WHERE id = $1
-		RETURNING id, sort_order, name, active
+		RETURNING id, sort_order, name, COALESCE(description, ''), COALESCE(instructions, ''), COALESCE(tag, ''), requires_inquiry, orderable, active
 	`
 
 	var result models.Category
-	if err := r.pool.QueryRow(ctx, query, id, cat.SortOrder, cat.Name, cat.Active).Scan(&result.ID, &result.SortOrder, &result.Name, &result.Active); err != nil {
+	if err := scanCategoryRow(r.pool.QueryRow(ctx, query, id, cat.SortOrder, cat.Name, cat.Description, cat.Instructions, cat.Tag, cat.RequiresInquiry, cat.Orderable, cat.Active), &result); err != nil {
 		return nil, fmt.Errorf("update category: %w", err)
 	}
 	return &result, nil
+}
+
+type categoryScanner interface {
+	Scan(dest ...any) error
+}
+
+func scanCategoryRow(row categoryScanner, cat *models.Category) error {
+	return row.Scan(
+		&cat.ID,
+		&cat.SortOrder,
+		&cat.Name,
+		&cat.Description,
+		&cat.Instructions,
+		&cat.Tag,
+		&cat.RequiresInquiry,
+		&cat.Orderable,
+		&cat.Active,
+	)
+}
+
+func scanCategory(rows categoryScanner, cat *models.Category) error {
+	return scanCategoryRow(rows, cat)
 }
 
 func (r *CategoryRepository) Deactivate(ctx context.Context, id string) error {
