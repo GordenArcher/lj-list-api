@@ -29,6 +29,8 @@ type stubProductRepo struct {
 	createdTag         string
 	createdActive      bool
 	updatedProduct     *models.Product
+	deletedProductID   string
+	applicationCount   int
 	primaryImageURL    string
 	setPrimaryCalls    int
 	findErr            error
@@ -149,11 +151,12 @@ func (r *stubProductRepo) Update(ctx context.Context, id, name, categoryID, cate
 }
 
 func (r *stubProductRepo) Delete(ctx context.Context, id string) error {
+	r.deletedProductID = id
 	return nil
 }
 
 func (r *stubProductRepo) CountApplicationsByProductID(ctx context.Context, productID string) (int, error) {
-	return 0, nil
+	return r.applicationCount, nil
 }
 
 func (r *stubProductRepo) SetPrimaryImageURL(ctx context.Context, productID, imageURL string) error {
@@ -377,6 +380,75 @@ func TestProductServiceUpdateProductAttachesExistingImages(t *testing.T) {
 	}
 	if product.Images[0].ID != "img-1" {
 		t.Fatalf("unexpected attached image: %#v", product.Images[0])
+	}
+}
+
+func TestProductServiceDeleteProductDeactivatesWhenApplicationsExist(t *testing.T) {
+	t.Parallel()
+
+	repo := &stubProductRepo{
+		currentProduct: &models.Product{
+			ID:         "prod-1",
+			Name:       "Rice",
+			CategoryID: "cat-1",
+			Category:   "Rice",
+			Price:      120,
+			Unit:       "bag",
+			Active:     true,
+		},
+		applicationCount: 2,
+	}
+	service := &ProductService{productRepo: repo}
+
+	result, err := service.DeleteProduct(context.Background(), "prod-1")
+	if err != nil {
+		t.Fatalf("DeleteProduct returned error: %v", err)
+	}
+	if result == nil || !result.SoftDeleted {
+		t.Fatalf("expected soft delete result, got %#v", result)
+	}
+	if repo.deletedProductID != "" {
+		t.Fatalf("expected hard delete to be skipped, got %q", repo.deletedProductID)
+	}
+	if repo.updatedProduct == nil || repo.updatedProduct.Active {
+		t.Fatalf("expected product to be deactivated, got %#v", repo.updatedProduct)
+	}
+}
+
+func TestProductServiceDeleteProductHardDeletesWhenOverrideEnabled(t *testing.T) {
+	t.Parallel()
+
+	repo := &stubProductRepo{
+		currentProduct: &models.Product{
+			ID:         "prod-1",
+			Name:       "Rice",
+			CategoryID: "cat-1",
+			Category:   "Rice",
+			Price:      120,
+			Unit:       "bag",
+			Active:     true,
+		},
+		applicationCount: 2,
+	}
+	service := &ProductService{
+		productRepo: repo,
+		cfg: config.Config{
+			AllowCatalogHardDeleteWithApplications: true,
+		},
+	}
+
+	result, err := service.DeleteProduct(context.Background(), "prod-1")
+	if err != nil {
+		t.Fatalf("DeleteProduct returned error: %v", err)
+	}
+	if result == nil || result.SoftDeleted {
+		t.Fatalf("expected hard delete result, got %#v", result)
+	}
+	if repo.deletedProductID != "prod-1" {
+		t.Fatalf("expected hard delete for prod-1, got %q", repo.deletedProductID)
+	}
+	if repo.updatedProduct != nil {
+		t.Fatalf("expected deactivation to be skipped, got %#v", repo.updatedProduct)
 	}
 }
 

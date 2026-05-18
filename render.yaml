@@ -48,6 +48,8 @@ services:
         sync: false
       - key: MIN_ORDER
         value: "549"
+      - key: ALLOW_CATALOG_HARD_DELETE_WITH_APPLICATIONS
+        value: "false"
 
 databases:
   - name: lj-list-postgres

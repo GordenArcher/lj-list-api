@@ -395,7 +395,8 @@ func (s *ProductService) UpdateProduct(ctx context.Context, id string, input Upd
 }
 
 // DeleteProduct hard-deletes catalog products with no order history and
-// soft-deletes products that already appear in applications.
+// soft-deletes products that already appear in applications unless the
+// catalog hard-delete override is enabled.
 func (s *ProductService) DeleteProduct(ctx context.Context, id string) (*DeleteProductResult, error) {
 	current, err := s.productRepo.FindByIDForAdmin(ctx, strings.TrimSpace(id))
 	if err != nil {
@@ -410,7 +411,7 @@ func (s *ProductService) DeleteProduct(ctx context.Context, id string) (*DeleteP
 		return nil, apperrors.Wrap(apperrors.KindInternal, "Failed to check product usage", err)
 	}
 
-	if orderCount > 0 {
+	if orderCount > 0 && !s.cfg.AllowCatalogHardDeleteWithApplications {
 		updated, err := s.productRepo.Update(ctx, current.ID, current.Name, current.CategoryID, current.Category, current.Unit, current.Price, current.OldPrice, current.Tag, false)
 		if err != nil {
 			return nil, apperrors.Wrap(apperrors.KindInternal, "Failed to deactivate product", err)
@@ -429,9 +430,16 @@ func (s *ProductService) DeleteProduct(ctx context.Context, id string) (*DeleteP
 
 	return &DeleteProductResult{
 		Product:     current,
-		Message:     "Product deleted successfully",
+		Message:     deleteProductMessage(orderCount),
 		SoftDeleted: false,
 	}, nil
+}
+
+func deleteProductMessage(applicationCount int) string {
+	if applicationCount > 0 {
+		return "Product deleted successfully despite existing application snapshots"
+	}
+	return "Product deleted successfully"
 }
 
 // AddProductImages uploads one or more images, creates product_images rows,

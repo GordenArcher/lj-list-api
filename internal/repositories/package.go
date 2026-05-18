@@ -197,6 +197,17 @@ func (r *PackageRepository) DeleteFixed(ctx context.Context, id string) error {
 	return nil
 }
 
+func (r *PackageRepository) HardDeleteFixed(ctx context.Context, id string) error {
+	tag, err := r.pool.Exec(ctx, `DELETE FROM fixed_packages WHERE id = $1`, id)
+	if err != nil {
+		return fmt.Errorf("hard delete fixed package: %w", err)
+	}
+	if tag.RowsAffected() == 0 {
+		return pgx.ErrNoRows
+	}
+	return nil
+}
+
 func (r *PackageRepository) ReactivateFixed(ctx context.Context, id string) (*models.FixedPackage, error) {
 	query := `
 		UPDATE fixed_packages

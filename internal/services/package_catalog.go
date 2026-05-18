@@ -30,6 +30,7 @@ type packageRepository interface {
 	CreateFixed(ctx context.Context, pkg *models.FixedPackage, sortOrder int) (*models.FixedPackage, error)
 	UpdateFixed(ctx context.Context, id string, pkg *models.FixedPackage, sortOrder int) (*models.FixedPackage, error)
 	DeleteFixed(ctx context.Context, id string) error
+	HardDeleteFixed(ctx context.Context, id string) error
 	ReactivateFixed(ctx context.Context, id string) (*models.FixedPackage, error)
 	ListDepartment(ctx context.Context, kind string, includeInactive bool) ([]models.SimplePackage, error)
 	FindDepartmentByID(ctx context.Context, kind, id string, includeInactive bool) (*models.SimplePackage, error)
@@ -201,7 +202,7 @@ func (s *PackageService) UpdateFixedPackage(ctx context.Context, id string, pkg 
 		if err != nil {
 			return nil, err
 		}
-		if count > 0 {
+		if count > 0 && !s.cfg.AllowCatalogHardDeleteWithApplications {
 			return nil, apperrors.New(apperrors.KindConflict, "Fixed package items cannot be changed after applications have been submitted", map[string][]string{
 				"items": {"this fixed package is already used by one or more applications"},
 			})
@@ -215,16 +216,33 @@ func (s *PackageService) UpdateFixedPackage(ctx context.Context, id string, pkg 
 	return s.hydrateFixedPackage(ctx, updated)
 }
 
-func (s *PackageService) DeleteFixedPackage(ctx context.Context, id string) error {
-	if err := s.packageRepo.DeleteFixed(ctx, strings.TrimSpace(id)); err != nil {
+type DeleteFixedPackageResult struct {
+	HardDeleted bool
+	Message     string
+}
+
+func (s *PackageService) DeleteFixedPackage(ctx context.Context, id string) (*DeleteFixedPackageResult, error) {
+	id = strings.TrimSpace(id)
+	deleteFn := s.packageRepo.DeleteFixed
+	result := &DeleteFixedPackageResult{
+		HardDeleted: false,
+		Message:     "Fixed package deactivated successfully",
+	}
+	if s.cfg.AllowCatalogHardDeleteWithApplications {
+		deleteFn = s.packageRepo.HardDeleteFixed
+		result.HardDeleted = true
+		result.Message = "Fixed package deleted successfully"
+	}
+
+	if err := deleteFn(ctx, id); err != nil {
 		if errors.Is(err, pgx.ErrNoRows) {
-			return apperrors.New(apperrors.KindNotFound, "Fixed package not found", map[string][]string{
+			return nil, apperrors.New(apperrors.KindNotFound, "Fixed package not found", map[string][]string{
 				"id": {"unknown fixed package"},
 			})
 		}
-		return err
+		return nil, err
 	}
-	return nil
+	return result, nil
 }
 
 func (s *PackageService) ReactivateFixedPackage(ctx context.Context, id string) (*models.FixedPackage, error) {

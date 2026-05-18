@@ -59,6 +59,11 @@ type Config struct {
 	// this threshold are rejected. Lives in config rather than a constant
 	// so different deployments can adjust it without recompiling.
 	MinOrder int
+
+	// AllowCatalogHardDeleteWithApplications lets admins permanently delete
+	// catalog rows and edit fixed package items even when applications already
+	// reference them. Historical applications keep their own snapshots.
+	AllowCatalogHardDeleteWithApplications bool
 }
 
 // Load reads configuration from environment variables using godenv.Get.
@@ -102,6 +107,10 @@ func Load() Config {
 		AdminPhoneNumber: utils.NormalizePhone(godenv.Get("ADMIN_PHONE_NUMBER", godenv.Get("ADMIN_NUMBER", ""))),
 		AdminNumber:      godenv.Get("ADMIN_NUMBER", ""),
 		MinOrder:         parsePositiveInt(godenv.Get("MIN_ORDER", "549"), 549),
+		AllowCatalogHardDeleteWithApplications: parseBool(
+			godenv.Get("ALLOW_CATALOG_HARD_DELETE_WITH_APPLICATIONS", "false"),
+			false,
+		),
 	}
 }
 

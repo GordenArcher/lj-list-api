@@ -1037,7 +1037,7 @@ func buildAPIDocumentation() models.APIResponse {
 			{
 				Method:      http.MethodDelete,
 				Path:        "/api/v1/admin/products/:id",
-				Description: "Delete a product (admin only). If the product has existing applications, it is kept and deactivated instead of being deleted.",
+				Description: "Delete a product (admin only). If the product has existing applications, it is kept and deactivated instead of being deleted unless ALLOW_CATALOG_HARD_DELETE_WITH_APPLICATIONS=true.",
 				Auth:        true,
 				AdminOnly:   true,
 				Example: `curl -X DELETE http://localhost:8080/api/v1/admin/products/550e8400-e29b-41d4-a716-446655440001 \
@@ -1274,7 +1274,7 @@ func buildAPIDocumentation() models.APIResponse {
 			{
 				Method:          http.MethodDelete,
 				Path:            "/api/v1/admin/packages/fixed/:id",
-				Description:     "Deactivate a fixed package bundle (admin only).",
+				Description:     "Deactivate a fixed package bundle (admin only). If ALLOW_CATALOG_HARD_DELETE_WITH_APPLICATIONS=true, the row is permanently deleted instead.",
 				Auth:            true,
 				AdminOnly:       true,
 				ResponseSuccess: models.NewSuccessResponse("req-abc123", "Fixed package deactivated successfully", nil),

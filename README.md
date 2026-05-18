@@ -64,6 +64,7 @@ make run
 | `ADMIN_PHONE_NUMBER` | Bootstrap phone number auto-promoted to admin on signup | defaults to `ADMIN_NUMBER` |
 | `ADMIN_NUMBER` | Legacy fallback SMS recipient if no admin accounts exist yet | optional |
 | `MIN_ORDER` | Minimum order amount in GHS | `549` |
+| `ALLOW_CATALOG_HARD_DELETE_WITH_APPLICATIONS` | Hard-delete products/fixed packages and allow fixed package item edits even when applications reference them | `false` |
 
 ## Response Envelope
 

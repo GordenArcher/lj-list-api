@@ -85,6 +85,7 @@ Standard metadata keys:
 - Set `COOKIE_SECURE=true` behind HTTPS.
 - Set `COOKIE_SAME_SITE=None` only when cross-site cookies are required and HTTPS is enabled.
 - Set `ADMIN_PHONE_NUMBER` before first bootstrap admin signup.
+- Keep `ALLOW_CATALOG_HARD_DELETE_WITH_APPLICATIONS=false` unless you intentionally want catalog deletes/edits to bypass application-history protections. Existing applications keep snapshots, but the active catalog row will be removed or changed.
 - Promote additional admins from the admin users UI or admin user update endpoint once the bootstrap admin is active.
 - Validate `DATABASE_URL` and run migrations on startup.
 

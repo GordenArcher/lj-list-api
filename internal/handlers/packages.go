@@ -191,12 +191,18 @@ func (h *PackageHandler) UpdateFixed(c *gin.Context) {
 }
 
 func (h *PackageHandler) DeleteFixed(c *gin.Context) {
-	if err := h.packageService.DeleteFixedPackage(c.Request.Context(), c.Param("id")); err != nil {
+	result, err := h.packageService.DeleteFixedPackage(c.Request.Context(), c.Param("id"))
+	if err != nil {
 		utils.HandleError(c, err, "Failed to delete fixed package")
 		return
 	}
 
-	utils.Success(c, http.StatusOK, "Fixed package deactivated successfully", nil)
+	utils.Success(c, http.StatusOK, result.Message, gin.H{
+		"deleted":      result.HardDeleted,
+		"deactivated":  !result.HardDeleted,
+		"hard_deleted": result.HardDeleted,
+		"message":      result.Message,
+	})
 }
 
 func (h *PackageHandler) ReactivateFixed(c *gin.Context) {

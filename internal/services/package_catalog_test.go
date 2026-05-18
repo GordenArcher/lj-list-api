@@ -44,10 +44,12 @@ func (r *stubPackageImageRepo) FindByProductID(ctx context.Context, productID st
 }
 
 type stubPackageRepo struct {
-	fixed             []models.FixedPackage
-	fixedByID         map[string]*models.FixedPackage
-	departmentID      map[string]map[string]*models.SimplePackage
-	updatedFixedItems []models.PackageItem
+	fixed              []models.FixedPackage
+	fixedByID          map[string]*models.FixedPackage
+	departmentID       map[string]map[string]*models.SimplePackage
+	updatedFixedItems  []models.PackageItem
+	deletedFixedID     string
+	hardDeletedFixedID string
 }
 
 func (r *stubPackageRepo) ListFixed(ctx context.Context, includeInactive bool) ([]models.FixedPackage, error) {
@@ -77,6 +79,12 @@ func (r *stubPackageRepo) UpdateFixed(ctx context.Context, id string, pkg *model
 }
 
 func (r *stubPackageRepo) DeleteFixed(ctx context.Context, id string) error {
+	r.deletedFixedID = id
+	return nil
+}
+
+func (r *stubPackageRepo) HardDeleteFixed(ctx context.Context, id string) error {
+	r.hardDeletedFixedID = id
 	return nil
 }
 
@@ -267,6 +275,56 @@ func TestPackageServiceUpdateFixedPackageRejectsItemChangesWhenApplicationsExist
 	}
 }
 
+func TestPackageServiceUpdateFixedPackageAllowsItemChangesWithHardDeleteOverride(t *testing.T) {
+	t.Parallel()
+
+	repo := &stubPackageRepo{
+		fixedByID: map[string]*models.FixedPackage{
+			"abusua": {
+				ID:      "abusua",
+				Name:    "Abusua Asomdwee",
+				Price:   "GH₵930",
+				Monthly: "GH₵310/mo",
+				Items: []models.PackageItem{
+					{ProductID: "prod-1", Qty: 1, Label: "Rice"},
+					{ProductID: "prod-2", Qty: 2, Label: "Oil"},
+				},
+			},
+		},
+	}
+	service := &PackageService{
+		productRepo: &stubPackageProductRepo{
+			byID: map[string]*models.Product{
+				"prod-1": {ID: "prod-1", Name: "Rice"},
+			},
+		},
+		packageRepo:     repo,
+		applicationRepo: &stubPackageApplicationRepo{fixedPackageCount: 1},
+		cfg: config.Config{
+			AllowCatalogHardDeleteWithApplications: true,
+		},
+	}
+
+	updated, err := service.UpdateFixedPackage(context.Background(), "abusua", models.FixedPackage{
+		ID:      "abusua",
+		Name:    "Abusua Asomdwee",
+		Price:   "GH₵930",
+		Monthly: "GH₵310/mo",
+		Items: []models.PackageItem{
+			{ProductID: "prod-1", Qty: 1, Label: "Rice"},
+		},
+	})
+	if err != nil {
+		t.Fatalf("UpdateFixedPackage returned error: %v", err)
+	}
+	if updated == nil || len(updated.Items) != 1 || updated.Items[0].ProductID != "prod-1" {
+		t.Fatalf("expected one remaining item, got %#v", updated)
+	}
+	if len(repo.updatedFixedItems) != 1 || repo.updatedFixedItems[0].ProductID != "prod-1" {
+		t.Fatalf("expected repository update with one item, got %#v", repo.updatedFixedItems)
+	}
+}
+
 func TestPackageServiceUpdateFixedPackageAllowsItemRemovalWhenUnused(t *testing.T) {
 	t.Parallel()
 
@@ -311,6 +369,53 @@ func TestPackageServiceUpdateFixedPackageAllowsItemRemovalWhenUnused(t *testing.
 	}
 	if len(repo.updatedFixedItems) != 1 || repo.updatedFixedItems[0].ProductID != "prod-1" {
 		t.Fatalf("expected repository update with one item, got %#v", repo.updatedFixedItems)
+	}
+}
+
+func TestPackageServiceDeleteFixedPackageUsesSoftDeleteByDefault(t *testing.T) {
+	t.Parallel()
+
+	repo := &stubPackageRepo{}
+	service := &PackageService{packageRepo: repo}
+
+	result, err := service.DeleteFixedPackage(context.Background(), "abusua")
+	if err != nil {
+		t.Fatalf("DeleteFixedPackage returned error: %v", err)
+	}
+	if result == nil || result.HardDeleted {
+		t.Fatalf("expected soft delete result, got %#v", result)
+	}
+	if repo.deletedFixedID != "abusua" {
+		t.Fatalf("expected soft delete for abusua, got %q", repo.deletedFixedID)
+	}
+	if repo.hardDeletedFixedID != "" {
+		t.Fatalf("expected hard delete to be skipped, got %q", repo.hardDeletedFixedID)
+	}
+}
+
+func TestPackageServiceDeleteFixedPackageHardDeletesWhenOverrideEnabled(t *testing.T) {
+	t.Parallel()
+
+	repo := &stubPackageRepo{}
+	service := &PackageService{
+		packageRepo: repo,
+		cfg: config.Config{
+			AllowCatalogHardDeleteWithApplications: true,
+		},
+	}
+
+	result, err := service.DeleteFixedPackage(context.Background(), "abusua")
+	if err != nil {
+		t.Fatalf("DeleteFixedPackage returned error: %v", err)
+	}
+	if result == nil || !result.HardDeleted {
+		t.Fatalf("expected hard delete result, got %#v", result)
+	}
+	if repo.hardDeletedFixedID != "abusua" {
+		t.Fatalf("expected hard delete for abusua, got %q", repo.hardDeletedFixedID)
+	}
+	if repo.deletedFixedID != "" {
+		t.Fatalf("expected soft delete to be skipped, got %q", repo.deletedFixedID)
 	}
 }
 
